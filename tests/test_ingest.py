@@ -83,6 +83,62 @@ class IngestServerTests(unittest.TestCase):
         self.assertEqual(response, {"accepted": 2, "ignored": 1})
         self.assertEqual([message.sequence for message in messages], [1, 2])
 
+    def test_batch_delivers_only_structural_viewer_chat(self) -> None:
+        self.server.settings.max_body_bytes = 4096
+        status, response = post(
+            self.host,
+            self.port,
+            "/ingest/socialstream",
+            {
+                "messages": [
+                    {
+                        "type": "twitch",
+                        "chatname": "System",
+                        "chatmessage": "great pull",
+                        "event": "",
+                        "hasDonation": "100 bits",
+                    },
+                    {
+                        "type": "tiktok",
+                        "chatname": "Subscriber",
+                        "chatmessage": "hello from TikTok",
+                        "event": False,
+                        "membership": "SUBSCRIBER",
+                    },
+                    {
+                        "type": "tiktok",
+                        "chatname": "",
+                        "chatmessage": "Some people are previewing your LIVE.",
+                        "event": True,
+                    },
+                    {
+                        "type": "twitch",
+                        "chatname": "Raider",
+                        "chatmessage": "Raid: 12 viewers joined",
+                        "event": "raid",
+                    },
+                    {
+                        "type": "tiktok",
+                        "chatname": "Viewer",
+                        "chatmessage": "collector notice",
+                        "system": True,
+                    },
+                ]
+            },
+        )
+
+        messages = self.server.drain()
+        self.assertEqual(status, 200)
+        self.assertEqual(response, {"accepted": 2, "ignored": 3})
+        self.assertEqual([message.sequence for message in messages], [1, 2])
+        self.assertEqual(
+            [(message.platform, message.username, message.kind) for message in messages],
+            [
+                ("TWITCH", "System", "chat"),
+                ("TIKTOK", "Subscriber", "chat"),
+            ],
+        )
+
     def test_rejects_wrong_path_without_processing_body(self) -> None:
         status, response = post(
             self.host,

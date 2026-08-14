@@ -15,6 +15,10 @@
 - Do not run duplicate TikTok connectors; this can trigger rate limits.
 - CAPTCHA, region, account, and platform changes may require manual attention.
 
+## Follow, subscription, gift, raid, or platform notices do not appear
+
+This is expected. Streamer Console is intentionally a viewer-conversation surface and structurally accepts only Twitch or TikTok chat records with both a username and message text. Events, system records, platform notices, counters, placeholders, and unknown-platform payloads are discarded before the retained feed; there is no setting that enables them.
+
 ## Chat works but OBS is disconnected
 
 - OBS must be running.
@@ -40,6 +44,12 @@
   that display and geometry are remembered for the next launch.
 - If the portrait monitor is disconnected, the app falls back to an available display instead of forcing an off-screen position.
 - Reset the saved window geometry in the local configuration if the monitor arrangement changed substantially.
+
+## Window cannot be resized or Windows 11 Snap Layouts do not appear
+
+- Open Reader Settings and turn off **Borderless window**.
+- Normal framed mode uses the native Windows resize edges and supports the Snap Layouts menu when the maximize button is hovered.
+- Borderless mode intentionally removes the native frame, so native edge resizing, the maximize hover target, and Snap Layouts are unavailable in that mode.
 
 ## Logs
 

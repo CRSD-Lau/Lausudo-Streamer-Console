@@ -27,7 +27,7 @@
       "hide_repeated_spam": false,
       "repeated_spam_threshold": 3,
       "repeated_spam_window_seconds": 20.0,
-      "hide_system_messages": false
+      "hide_system_messages": true
     }
   },
   "ingest": {

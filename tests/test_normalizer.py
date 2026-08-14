@@ -97,33 +97,123 @@ class MessageNormalizerTests(unittest.TestCase):
         self.assertEqual(message.platform, "TWITCH")
         self.assertEqual(message.text, "hello")
 
-    def test_marks_supported_events_inline(self) -> None:
-        message = normalize_social_stream_message(
+    def test_drops_named_events_and_events_without_chat_bodies(self) -> None:
+        named_event = normalize_social_stream_message(
             {
                 "type": "twitch",
                 "chatname": "Supporter",
-                "chatmessage": "For the pizza fund",
-                "hasDonation": "$5.00",
+                "chatmessage": "Gifted a subscription",
+                "event": "subscription_gift",
+            },
+            received_at=self.received_at,
+        )
+        bodyless_event = normalize_social_stream_message(
+            {
+                "type": "tiktok",
+                "chatname": "GiftUser",
+                "event": "gift",
+                "gift": {"count": 3},
+            },
+            received_at=self.received_at,
+        )
+
+        self.assertIsNone(named_event)
+        self.assertIsNone(bodyless_event)
+
+    def test_drops_tiktok_system_event_cards_seen_in_live_chat(self) -> None:
+        notices = (
+            "Some people are previewing your LIVE. Keep interacting to bring in more viewers!",
+            "· 1",
+            "{s_num} people will be previewing your LIVE. Get ready to welcome new viewers.",
+        )
+
+        for text in notices:
+            with self.subTest(text=text):
+                message = normalize_social_stream_message(
+                    {
+                        "type": "tiktok",
+                        "chatname": "",
+                        "chatmessage": text,
+                        "event": True,
+                    },
+                    received_at=self.received_at,
+                )
+                self.assertIsNone(message)
+
+    def test_preserves_system_named_viewer_and_donation_chat(self) -> None:
+        message = normalize_social_stream_message(
+            {
+                "type": "twitch",
+                "chatname": "System",
+                "chatmessage": "That was a clean pull",
+                "event": "",
+                "hasDonation": "100 bits",
             },
             received_at=self.received_at,
         )
 
         self.assertIsNotNone(message)
         assert message is not None
-        self.assertEqual(message.kind, "event")
-        self.assertEqual(message.event_type, "donation")
-        self.assertEqual(message.amount, "$5.00")
+        self.assertEqual(message.username, "System")
+        self.assertEqual(message.text, "That was a clean pull")
+        self.assertEqual(message.kind, "chat")
+        self.assertEqual(message.event_type, "")
+        self.assertEqual(message.amount, "")
 
-    def test_creates_readable_text_for_event_without_chat_body(self) -> None:
-        message = normalize_social_stream_message(
-            {"type": "tiktok", "chatname": "GiftUser", "gift": {"count": 3}},
-            received_at=self.received_at,
+    def test_preserves_subscriber_chat_with_false_source_event_marker(self) -> None:
+        for marker in (False, 0, "", "false", "0", "off", "null"):
+            with self.subTest(marker=marker):
+                message = normalize_social_stream_message(
+                    {
+                        "type": "tiktok",
+                        "chatname": "Subscriber",
+                        "chatmessage": "what server is this?",
+                        "event": marker,
+                        "membership": "SUBSCRIBER",
+                    },
+                    received_at=self.received_at,
+                )
+
+                self.assertIsNotNone(message)
+                assert message is not None
+                self.assertEqual(message.kind, "chat")
+                self.assertEqual(message.username, "Subscriber")
+
+    def test_drops_all_structural_non_chat_markers_and_unsupported_platforms(self) -> None:
+        payloads = (
+            {
+                "type": "twitch",
+                "chatname": "Viewer",
+                "chatmessage": "redeemed a reward",
+                "eventType": "reward",
+            },
+            {
+                "type": "tiktok",
+                "chatname": "Viewer",
+                "chatmessage": "followed the LIVE",
+                "event_type": "followed",
+            },
+            {
+                "type": "twitch",
+                "chatname": "Viewer",
+                "chatmessage": "collector notice",
+                "system": True,
+            },
+            {
+                "type": "socialstream",
+                "chatname": "Viewer",
+                "chatmessage": "collector notice",
+            },
         )
 
-        self.assertIsNotNone(message)
-        assert message is not None
-        self.assertEqual(message.kind, "event")
-        self.assertEqual(message.text, "Gift: 3")
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                self.assertIsNone(
+                    normalize_social_stream_message(
+                        payload,
+                        received_at=self.received_at,
+                    )
+                )
 
     def test_rejects_empty_payload_and_exact_retransmitted_source_id(self) -> None:
         normalizer = MessageNormalizer()

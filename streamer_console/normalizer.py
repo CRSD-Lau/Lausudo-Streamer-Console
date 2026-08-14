@@ -20,17 +20,11 @@ except ImportError:  # pragma: no cover - useful for direct-file diagnostics
 
 _WHITESPACE = re.compile(r"[ \t\f\v]+")
 _EXCESS_NEWLINES = re.compile(r"\n{3,}")
-_EVENT_KEYS = (
+_NON_CHAT_MARKER_KEYS = (
     "event",
     "eventType",
     "event_type",
-    "hasDonation",
-    "membership",
-    "subscription",
-    "gift",
-    "bits",
-    "raid",
-    "follow",
+    "system",
 )
 
 
@@ -155,6 +149,24 @@ def _first(payload: Mapping[str, Any], names: Iterable[str]) -> Any:
     return ""
 
 
+def _marker_is_truthy(value: Any) -> bool:
+    """Interpret source event flags without treating string ``false`` as true."""
+
+    if value in (None, "", False, 0):
+        return False
+    if isinstance(value, str):
+        return value.strip().casefold() not in {
+            "",
+            "0",
+            "false",
+            "null",
+            "none",
+            "no",
+            "off",
+        }
+    return True
+
+
 def _unwrap_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     """Accept direct SSN messages and common webhook wrapper objects."""
 
@@ -188,35 +200,6 @@ def _unwrap_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         if "chatname" in candidate or "chatmessage" in candidate or "event" in candidate:
             break
     return candidate if isinstance(candidate, Mapping) else payload
-
-
-def _event_details(payload: Mapping[str, Any]) -> tuple[str, str]:
-    event_type = ""
-    amount = ""
-    for key in _EVENT_KEYS:
-        value = payload.get(key)
-        if value in (None, "", False, 0):
-            continue
-        if key == "hasDonation":
-            event_type = "donation"
-            amount = html_to_plain_text(value, max_length=128)
-        elif isinstance(value, Mapping):
-            event_type = html_to_plain_text(
-                _first(value, ("type", "name", "event", "kind")) or key,
-                max_length=64,
-            ).lower()
-            amount = html_to_plain_text(
-                _first(value, ("amount", "value", "count", "total")), max_length=128
-            )
-        elif isinstance(value, bool):
-            event_type = key.lower()
-        else:
-            event_type = key.lower() if key not in {"event", "eventType", "event_type"} else html_to_plain_text(value, max_length=64).lower()
-            if key in {"membership", "subscription", "gift", "bits"}:
-                amount = html_to_plain_text(value, max_length=128)
-        if event_type:
-            break
-    return event_type, amount
 
 
 @dataclass(slots=True)
@@ -275,20 +258,19 @@ class MessageNormalizer:
         text = html_to_plain_text(
             _first(payload, ("chatmessage", "text", "comment", "content"))
         )
-        event_type, amount = _event_details(payload)
-        kind = "event" if event_type else "chat"
-        if not text and kind == "event":
-            text = event_type.replace("_", " ").title()
-            if amount:
-                text = f"{text}: {amount}"
-        if not text:
+        is_non_chat = any(
+            _marker_is_truthy(payload.get(key)) for key in _NON_CHAT_MARKER_KEYS
+        )
+        # The console is deliberately a conversation surface. Social Stream
+        # events, platform notices, counters, and placeholder strings are not
+        # viewer chat and must never enter the retained model.
+        if platform not in {"TWITCH", "TIKTOK"} or is_non_chat or not username or not text:
             return None
 
         source_id = html_to_plain_text(
             _first(payload, ("id", "mid", "message_id", "messageId")), max_length=256
         )
         avatar_url = str(_first(payload, ("chatimg", "avatar", "avatar_url")))[:2_048]
-        is_system = bool(payload.get("system")) or platform in {"SYSTEM", "UNKNOWN"} and not username
         bot_names = {name.casefold() for name in self.filters.bot_names}
         is_bot = bool(payload.get("bot") or payload.get("isBot")) or username.casefold() in bot_names
         text_key = (platform, username.casefold(), text.casefold())
@@ -306,8 +288,6 @@ class MessageNormalizer:
             if self.filters.hide_bots and is_bot:
                 return None
             if self.filters.hide_commands and text.lstrip().startswith("!"):
-                return None
-            if self.filters.hide_system_messages and is_system:
                 return None
             if self.filters.hide_duplicates:
                 duplicate_window = max(1.0, self.filters.repeated_spam_window_seconds)
@@ -358,12 +338,12 @@ class MessageNormalizer:
                 platform=platform,
                 username=username or "System",
                 text=text,
-                kind=kind,
-                event_type=event_type,
+                kind="chat",
+                event_type="",
                 highlight=highlighted,
                 source_id=source_id,
                 avatar_url=avatar_url,
-                amount=amount,
+                amount="",
             )
             self._messages.append(message)
             return message

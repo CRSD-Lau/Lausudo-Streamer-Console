@@ -35,7 +35,7 @@ class WindowSettings:
 
 @dataclass(slots=True)
 class FilterSettings:
-    """Conservative defaults: only incontrovertible source-ID duplicates drop."""
+    """Optional viewer-chat filters; non-chat records always drop."""
 
     hide_bots: bool = False
     bot_names: list[str] = field(default_factory=list)
@@ -44,7 +44,7 @@ class FilterSettings:
     hide_repeated_spam: bool = False
     repeated_spam_threshold: int = 3
     repeated_spam_window_seconds: float = 20.0
-    hide_system_messages: bool = False
+    hide_system_messages: bool = True
 
 
 @dataclass(slots=True)

@@ -30,6 +30,8 @@ from PySide6.QtGui import (
     QPainter,
     QPen,
     QPixmap,
+    QResizeEvent,
+    QShowEvent,
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
@@ -38,6 +40,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QBoxLayout,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -138,16 +141,24 @@ class ConnectionBadge(QWidget):
 class Metric(QWidget):
     def __init__(self, caption: str, value: str = "UNKNOWN", parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(7)
-        caption_label = QLabel(caption.upper())
-        caption_label.setObjectName("statusLabel")
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(7)
+        self.caption = QLabel(caption.upper())
+        self.caption.setObjectName("statusLabel")
         self.value = QLabel(value)
         self.value.setObjectName("metricValue")
-        layout.addWidget(caption_label)
-        layout.addWidget(self.value)
-        layout.addStretch(1)
+        self._layout.addWidget(self.caption)
+        self._layout.addWidget(self.value)
+        self._layout.addStretch(1)
+
+    def set_compact(self, compact: bool) -> None:
+        self._layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact
+            else QBoxLayout.Direction.LeftToRight
+        )
+        self._layout.setSpacing(0 if compact else 7)
 
     def set_value(self, text: str, state: str = "unknown") -> None:
         self.value.setText(text)
@@ -402,21 +413,20 @@ class ReaderSettingsDialog(QDialog):
         self.collapse_duplicates.setChecked(preferences.filters.collapse_duplicates)
         self.suppress_spam = QCheckBox("Suppress a third repeated message")
         self.suppress_spam.setChecked(preferences.filters.suppress_repeated_spam)
-        self.show_system = QCheckBox("Show system messages")
-        self.show_system.setChecked(preferences.filters.show_system_messages)
         for control in (
             self.hide_bots,
             self.hide_commands,
             self.collapse_duplicates,
             self.suppress_spam,
-            self.show_system,
         ):
             root.addWidget(control)
 
         window_label = QLabel("WINDOW")
         window_label.setObjectName("settingSection")
         root.addWidget(window_label)
-        self.borderless = QCheckBox("Borderless window")
+        self.borderless = QCheckBox(
+            "Borderless window (disables native resize and Snap layouts)"
+        )
         self.borderless.setChecked(borderless)
         self.always_on_top = QCheckBox("Always on top")
         self.always_on_top.setChecked(always_on_top)
@@ -443,13 +453,16 @@ class ReaderSettingsDialog(QDialog):
                 hide_commands=self.hide_commands.isChecked(),
                 collapse_duplicates=self.collapse_duplicates.isChecked(),
                 suppress_repeated_spam=self.suppress_spam.isChecked(),
-                show_system_messages=self.show_system.isChecked(),
+                show_system_messages=False,
             ),
         )
 
 
 class MainWindow(QMainWindow):
     """Portrait-first console with thread-safe integration entry points."""
+
+    _COMPACT_WIDTH = 880
+    _FRAME_FIT_DELAYS_MS = (0, 25, 75, 150, 300)
 
     brb_requested = Signal()
     discord_toggle_requested = Signal()
@@ -475,13 +488,23 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Lausudo Streamer Console")
-        self.setMinimumSize(560, 860)
+        # Fits a practical half-width cell on the 1080 px portrait display.
+        self.setMinimumSize(500, 640)
         self.resize(880, 1560)
         self._persist_settings = persist_settings
         self._settings = settings or QSettings("Neil Mitchell", "Streamer Console")
         self._borderless = False
         self._always_on_top = False
         self._brb_state = "unknown"
+        self._discord_state: bool | None = None
+        self._compact_layout: bool | None = None
+        self._frame_fit_attempt = 0
+        self._frame_fit_last_signature: tuple[int, int, int, int] | None = None
+        self._frame_fit_applied = False
+        self._frame_fit_final_verification = False
+        self._frame_fit_timer = QTimer(self)
+        self._frame_fit_timer.setSingleShot(True)
+        self._frame_fit_timer.timeout.connect(self._run_scheduled_frame_fit)
 
         loaded_preferences = (
             preferences
@@ -495,6 +518,7 @@ class MainWindow(QMainWindow):
         self.model = model or ChatListModel(preferences=loaded_preferences, parent=self)
         self.delegate = ChatItemDelegate(self.model.preferences)
         self._build_ui()
+        self._update_responsive_layout(self.width())
         self._connect_signals()
         self.set_brb_state("unknown")
         self.set_discord_state(None)
@@ -616,23 +640,29 @@ class MainWindow(QMainWindow):
         chat_layout.addWidget(self.resume_button, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(chat_container, 1)
 
-        status_strip = QFrame()
-        status_strip.setObjectName("streamStatusStrip")
-        status_strip.setFixedHeight(105)
-        status_layout = QVBoxLayout(status_strip)
+        self.status_strip = QFrame()
+        self.status_strip.setObjectName("streamStatusStrip")
+        self.status_strip.setFixedHeight(105)
+        status_layout = QVBoxLayout(self.status_strip)
         status_layout.setContentsMargins(14, 9, 14, 8)
         status_layout.setSpacing(5)
-        metric_row = QHBoxLayout()
-        metric_row.setSpacing(13)
+        self.metric_layout = QGridLayout()
+        self.metric_layout.setHorizontalSpacing(13)
+        self.metric_layout.setVerticalSpacing(4)
         self.obs_metric = Metric("OBS")
         self.stream_metric = Metric("TWITCH")
         self.record_metric = Metric("REC")
         self.vertical_metric = Metric("TIKTOK OUT")
-        metric_row.addWidget(self.obs_metric, 1)
-        metric_row.addWidget(self.stream_metric, 1)
-        metric_row.addWidget(self.record_metric, 1)
-        metric_row.addWidget(self.vertical_metric, 1)
-        status_layout.addLayout(metric_row)
+        self._status_metrics = (
+            self.obs_metric,
+            self.stream_metric,
+            self.record_metric,
+            self.vertical_metric,
+        )
+        for column, metric in enumerate(self._status_metrics):
+            self.metric_layout.addWidget(metric, 0, column)
+            self.metric_layout.setColumnStretch(column, 1)
+        status_layout.addLayout(self.metric_layout)
         line = QFrame()
         line.setObjectName("hairline")
         line.setFixedHeight(1)
@@ -654,7 +684,7 @@ class MainWindow(QMainWindow):
         scenes.addWidget(vertical_caption, 0, 1)
         scenes.addWidget(self.vertical_scene, 1, 1)
         status_layout.addLayout(scenes)
-        layout.addWidget(status_strip)
+        layout.addWidget(self.status_strip)
 
         controls = QHBoxLayout()
         controls.setSpacing(10)
@@ -694,6 +724,47 @@ class MainWindow(QMainWindow):
         button.setToolTip(tooltip)
         button.setAccessibleName(tooltip)
         return button
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        if hasattr(self, "metric_layout"):
+            self._update_responsive_layout(event.size().width())
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
+        super().showEvent(event)
+        if not self._borderless and not self.isMaximized():
+            self._schedule_native_frame_fit()
+
+    def _update_responsive_layout(self, width: int) -> None:
+        compact = width < self._COMPACT_WIDTH
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+
+        for metric in self._status_metrics:
+            self.metric_layout.removeWidget(metric)
+            metric.set_compact(compact)
+        for column in range(4):
+            self.metric_layout.setColumnStretch(column, 0)
+        if compact:
+            for index, metric in enumerate(self._status_metrics):
+                row, column = divmod(index, 2)
+                self.metric_layout.addWidget(metric, row, column)
+            self.metric_layout.setColumnStretch(0, 1)
+            self.metric_layout.setColumnStretch(1, 1)
+            self.status_strip.setFixedHeight(135)
+            control_style = "font-size: 15px; padding: 8px 10px;"
+        else:
+            for column, metric in enumerate(self._status_metrics):
+                self.metric_layout.addWidget(metric, 0, column)
+                self.metric_layout.setColumnStretch(column, 1)
+            self.status_strip.setFixedHeight(105)
+            control_style = ""
+
+        self.brb_button.setStyleSheet(control_style)
+        self.discord_button.setStyleSheet(control_style)
+        self._set_brb_state(self._brb_state)
+        self._set_discord_state(self._discord_state)
 
     def add_message(self, message: Any) -> None:
         """Thread-safe entry point for an ingestion callback."""
@@ -801,18 +872,19 @@ class MainWindow(QMainWindow):
     @Slot(str)
     def _set_brb_state(self, state: str) -> None:
         normalized = state.strip().lower().replace("_", " ")
+        compact = bool(self._compact_layout)
         if normalized in {"active", "brb active", "privacy", "brb"}:
             normalized = "brb"
-            text = "BRB ACTIVE\nF1  •  RETURN LIVE"
+            text = "BRB ACTIVE\nF1 · RETURN" if compact else "BRB ACTIVE\nF1  •  RETURN LIVE"
         elif normalized in {"live", "normal", "inactive", "ready"}:
             normalized = "live"
-            text = "BRB / PRIVACY\nF1  •  LIVE"
+            text = "BRB PRIVACY\nF1 · LIVE" if compact else "BRB / PRIVACY\nF1  •  LIVE"
         elif normalized in {"mixed", "partial", "drifted"}:
             normalized = "mixed"
-            text = "PRIVACY STATE MIXED\nF1  •  RECONCILE"
+            text = "BRB MIXED\nF1 · FIX" if compact else "PRIVACY STATE MIXED\nF1  •  RECONCILE"
         else:
             normalized = "unknown"
-            text = "BRB / PRIVACY\nF1  •  STATE UNKNOWN"
+            text = "BRB PRIVACY\nF1 · UNKNOWN" if compact else "BRB / PRIVACY\nF1  •  STATE UNKNOWN"
         self._brb_state = normalized
         self.brb_button.setText(text)
         self.brb_button.setProperty("state", normalized)
@@ -820,15 +892,17 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _set_discord_state(self, muted: bool | None) -> None:
+        compact = bool(self._compact_layout)
         if muted is True:
             state = "muted"
-            text = "DISCORD MUTED\nF2  •  UNMUTE"
+            text = "DISCORD MUTED\nF2 · UNMUTE" if compact else "DISCORD MUTED\nF2  •  UNMUTE"
         elif muted is False:
             state = "live"
-            text = "DISCORD MUTE\nF2  •  MIC LIVE"
+            text = "DISCORD MUTE\nF2 · LIVE" if compact else "DISCORD MUTE\nF2  •  MIC LIVE"
         else:
             state = "unknown"
-            text = "DISCORD MUTE\nF2  •  STATE UNAVAILABLE"
+            text = "DISCORD MUTE\nF2 · UNKNOWN" if compact else "DISCORD MUTE\nF2  •  STATE UNAVAILABLE"
+        self._discord_state = muted
         self.discord_button.setText(text)
         self.discord_button.setProperty("state", state)
         repolish(self.discord_button)
@@ -892,10 +966,41 @@ class MainWindow(QMainWindow):
             self.window_preferences_changed.emit(values)
 
     def _apply_window_flags(self, *, show_again: bool) -> None:
-        self.setWindowFlag(Qt.WindowType.FramelessWindowHint, self._borderless)
-        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, self._always_on_top)
-        if show_again:
-            self.show()
+        current_flags = self.windowFlags()
+        desired_flags = current_flags
+        if self._borderless:
+            desired_flags |= Qt.WindowType.FramelessWindowHint
+        else:
+            desired_flags &= ~Qt.WindowType.FramelessWindowHint
+        if self._always_on_top:
+            desired_flags |= Qt.WindowType.WindowStaysOnTopHint
+        else:
+            desired_flags &= ~Qt.WindowType.WindowStaysOnTopHint
+
+        was_visible = bool(show_again and self.isVisible())
+        was_maximized = self.isMaximized()
+        normal_geometry = QRect(self.normalGeometry())
+        if not normal_geometry.isValid():
+            normal_geometry = QRect(self.geometry())
+
+        if desired_flags != current_flags:
+            # Changing either hint recreates the HWND on Windows. Preserve the
+            # user's restore rectangle and maximized state across that rebuild.
+            self._frame_fit_timer.stop()
+            self.setWindowFlags(desired_flags)
+            self.setGeometry(normal_geometry)
+            if was_visible:
+                if was_maximized:
+                    self.showMaximized()
+                else:
+                    self.show()
+            elif was_maximized:
+                self.setWindowState(
+                    self.windowState() | Qt.WindowState.WindowMaximized
+                )
+
+        if was_visible and not self._borderless and not was_maximized:
+            self._schedule_native_frame_fit()
 
     def capture_window_preferences(self) -> dict[str, Any]:
         screen = self.screen()
@@ -956,6 +1061,10 @@ class MainWindow(QMainWindow):
 
         if bool(_value(preferences, "maximized", default=False)):
             self.showMaximized()
+        elif not borderless:
+            # Runs after the event loop starts, when Windows has supplied the
+            # real title-bar and resize-frame margins.
+            self._schedule_native_frame_fit()
 
     def _load_preferences(self) -> ChatPreferences:
         values = {
@@ -971,7 +1080,7 @@ class MainWindow(QMainWindow):
                 "hide_commands": self._settings.value("filters/hide_commands", False, bool),
                 "collapse_duplicates": self._settings.value("filters/collapse_duplicates", False, bool),
                 "suppress_repeated_spam": self._settings.value("filters/suppress_spam", False, bool),
-                "show_system_messages": self._settings.value("filters/show_system", True, bool),
+                "show_system_messages": False,
             },
         }
         return ChatPreferences.from_mapping(values)
@@ -986,7 +1095,7 @@ class MainWindow(QMainWindow):
         self._settings.setValue("filters/hide_commands", preferences.filters.hide_commands)
         self._settings.setValue("filters/collapse_duplicates", preferences.filters.collapse_duplicates)
         self._settings.setValue("filters/suppress_spam", preferences.filters.suppress_repeated_spam)
-        self._settings.setValue("filters/show_system", preferences.filters.show_system_messages)
+        self._settings.setValue("filters/show_system", False)
         self._settings.sync()
 
     def _restore_or_place_window(self) -> None:
@@ -998,8 +1107,10 @@ class MainWindow(QMainWindow):
             elif isinstance(geometry_value, bytes):
                 restored = self.restoreGeometry(QByteArray(geometry_value))
         if restored and self._geometry_on_available_screen(self.frameGeometry()):
+            self._schedule_native_frame_fit()
             return
         self._place_on_portrait_screen()
+        self._schedule_native_frame_fit()
 
     def _place_on_portrait_screen(self) -> None:
         screens = QApplication.screens()
@@ -1015,6 +1126,213 @@ class MainWindow(QMainWindow):
         x = area.x() + (area.width() - width) // 2
         y = area.y() + (area.height() - height) // 2
         self.setGeometry(x, y, width, height)
+
+    def _schedule_native_frame_fit(self) -> None:
+        """Fit only after two matching native-frame observations."""
+
+        if self._borderless or self.isMaximized():
+            self._frame_fit_timer.stop()
+            return
+        self._frame_fit_attempt = 0
+        self._frame_fit_last_signature = None
+        self._frame_fit_applied = False
+        self._frame_fit_final_verification = False
+        self._frame_fit_timer.start(self._FRAME_FIT_DELAYS_MS[0])
+
+    def _run_scheduled_frame_fit(self) -> None:
+        if self._borderless or self.isMaximized():
+            return
+        if not self.isVisible():
+            self._queue_frame_fit_retry()
+            return
+
+        signature = self._native_frame_insets()
+        stable = signature == self._frame_fit_last_signature
+        at_last_attempt = self._frame_fit_attempt >= len(self._FRAME_FIT_DELAYS_MS) - 1
+
+        if not self._frame_fit_applied:
+            if not stable and not at_last_attempt:
+                self._frame_fit_last_signature = signature
+                self._queue_frame_fit_retry()
+                return
+            self._fit_native_frame_to_available_screen(signature)
+            self._frame_fit_applied = True
+            self._frame_fit_last_signature = signature
+            if not self._queue_frame_fit_retry():
+                self._queue_final_frame_fit_verification()
+            return
+
+        margins_changed = signature != self._frame_fit_last_signature
+        frame_inconsistent = not self._native_frame_matches_client(signature)
+        if (
+            margins_changed
+            or frame_inconsistent
+            or not self._native_frame_placement_is_reachable()
+        ):
+            self._fit_native_frame_to_available_screen(signature)
+            self._frame_fit_last_signature = signature
+            if not self._queue_frame_fit_retry():
+                self._queue_final_frame_fit_verification()
+
+    def _queue_frame_fit_retry(self) -> bool:
+        next_attempt = self._frame_fit_attempt + 1
+        if next_attempt >= len(self._FRAME_FIT_DELAYS_MS):
+            return False
+        self._frame_fit_attempt = next_attempt
+        self._frame_fit_timer.start(self._FRAME_FIT_DELAYS_MS[next_attempt])
+        return True
+
+    def _queue_final_frame_fit_verification(self) -> None:
+        if self._frame_fit_final_verification:
+            return
+        self._frame_fit_final_verification = True
+        self._frame_fit_timer.start(50)
+
+    def _native_frame_insets(self) -> tuple[int, int, int, int]:
+        frame = self.frameGeometry()
+        client = self.geometry()
+        handle = self.windowHandle()
+        if handle is not None:
+            margins = handle.frameMargins()
+            reported = (
+                max(0, margins.left()),
+                max(0, margins.top()),
+                max(0, margins.right()),
+                max(0, margins.bottom()),
+            )
+            if any(reported):
+                return reported
+        return (
+            max(0, client.x() - frame.x()),
+            max(0, client.y() - frame.y()),
+            max(0, frame.width() - client.width() - (client.x() - frame.x())),
+            max(0, frame.height() - client.height() - (client.y() - frame.y())),
+        )
+
+    def _target_screen_for_frame(self, frame: QRect) -> Any:
+        screens = QApplication.screens()
+        intersecting = [
+            (
+                max(0, frame.intersected(screen.availableGeometry()).width())
+                * max(0, frame.intersected(screen.availableGeometry()).height()),
+                screen,
+            )
+            for screen in screens
+        ]
+        best_area, best_screen = max(intersecting, default=(0, None), key=lambda item: item[0])
+        if best_area > 0:
+            return best_screen
+        return self.screen() or QApplication.primaryScreen()
+
+    def _native_frame_placement_is_reachable(self) -> bool:
+        frame = self.frameGeometry()
+        screen = self._target_screen_for_frame(frame)
+        if screen is None:
+            return True
+        area = screen.availableGeometry()
+        horizontal = frame.left() >= area.left() and (
+            frame.width() > area.width() or frame.right() <= area.right()
+        )
+        vertical = frame.top() >= area.top() and (
+            frame.height() > area.height() or frame.bottom() <= area.bottom()
+        )
+        return horizontal and vertical
+
+    def _native_frame_matches_client(
+        self, insets: tuple[int, int, int, int] | None = None
+    ) -> bool:
+        client = self.geometry()
+        left, top, right, bottom = insets or self._native_frame_insets()
+        expected = QRect(
+            client.x() - left,
+            client.y() - top,
+            client.width() + left + right,
+            client.height() + top + bottom,
+        )
+        return self.frameGeometry() == expected
+
+    def _refresh_native_frame_geometry(self, client: QRect) -> None:
+        """Force Qt/Windows to recompute a stale non-client frame in place."""
+
+        if client.width() < self.maximumWidth():
+            pulse = QRect(client.x(), client.y(), client.width() + 1, client.height())
+        elif client.width() > self.minimumWidth():
+            pulse = QRect(client.x(), client.y(), client.width() - 1, client.height())
+        elif client.height() < self.maximumHeight():
+            pulse = QRect(client.x(), client.y(), client.width(), client.height() + 1)
+        elif client.height() > self.minimumHeight():
+            pulse = QRect(client.x(), client.y(), client.width(), client.height() - 1)
+        else:
+            pulse = QRect(client.x() + 1, client.y(), client.width(), client.height())
+        self.setGeometry(pulse)
+        self.setGeometry(client)
+
+    def _fit_native_frame_to_available_screen(
+        self, insets: tuple[int, int, int, int] | None = None
+    ) -> None:
+        """Keep the Windows caption reachable and fit the frame when possible."""
+
+        if self._borderless or self.isMaximized() or not self.isVisible():
+            return
+        client = self.geometry()
+        left, top, right, bottom = insets or self._native_frame_insets()
+        # HWND recreation can briefly report the client origin as the frame
+        # origin even after its margins have stabilized. Derive the candidate
+        # frame from the preserved client rectangle so that transient native
+        # positioning cannot introduce one extra inset on every toggle.
+        frame = QRect(
+            client.x() - left,
+            client.y() - top,
+            client.width() + left + right,
+            client.height() + top + bottom,
+        )
+        screen = self._target_screen_for_frame(frame)
+        if screen is None:
+            return
+        fitted = self._fitted_client_geometry(
+            client,
+            frame,
+            screen.availableGeometry(),
+            (left, top, right, bottom),
+            self.minimumSize(),
+        )
+        if fitted != client:
+            self.setGeometry(fitted)
+        elif not self._native_frame_matches_client((left, top, right, bottom)):
+            self._refresh_native_frame_geometry(client)
+
+    @staticmethod
+    def _fitted_client_geometry(
+        client: QRect,
+        frame: QRect,
+        area: QRect,
+        insets: tuple[int, int, int, int],
+        minimum: QSize,
+    ) -> QRect:
+        left, top, right, bottom = (max(0, value) for value in insets)
+        max_client_width = max(minimum.width(), area.width() - left - right)
+        max_client_height = max(minimum.height(), area.height() - top - bottom)
+        client_width = min(max(client.width(), minimum.width()), max_client_width)
+        client_height = min(max(client.height(), minimum.height()), max_client_height)
+        frame_width = client_width + left + right
+        frame_height = client_height + top + bottom
+
+        if frame_width > area.width():
+            frame_x = area.x()
+        else:
+            max_frame_x = area.x() + area.width() - frame_width
+            frame_x = min(max(frame.x(), area.x()), max_frame_x)
+        if frame_height > area.height():
+            frame_y = area.y()
+        else:
+            max_frame_y = area.y() + area.height() - frame_height
+            frame_y = min(max(frame.y(), area.y()), max_frame_y)
+        return QRect(
+            frame_x + left,
+            frame_y + top,
+            client_width,
+            client_height,
+        )
 
     @staticmethod
     def _geometry_on_available_screen(rect: QRect) -> bool:

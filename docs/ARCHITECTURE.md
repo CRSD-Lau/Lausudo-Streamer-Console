@@ -34,7 +34,9 @@ http://127.0.0.1:17840/ingest/socialstream
 
 The receiver binds only to loopback, caps request size, validates JSON, assigns a local monotonic sequence and receipt time, converts supported message markup to plain text, and returns promptly. Provider timestamps are retained as metadata when present but do not control ordering.
 
-Messages are deduplicated conservatively and held in a bounded model. The default retention is 750 messages. The two platform paths are independent upstream; a missing TikTok message never blocks a Twitch message. Because the POST path is fire-and-forget rather than a persistent collector socket, a platform is shown as **RECEIVING** only after recent data and ages to **NO RECENT DATA** after 30 seconds of silence. Social Stream Ninja/browser owns upstream reconnection.
+Only genuine viewer-chat records from Twitch and TikTok cross the normalization boundary. A record must identify one of those two platforms and contain both a viewer name and message text. Event-marked payloads, standalone follows, subscriptions, gifts, raids, bits notices, platform notices, system records, counters, placeholders, and unknown-platform payloads are structurally discarded before the retained model. A real viewer message is retained when it carries subscriber, cheer, donation, or badge metadata but is not source-marked as an event. This is an invariant rather than an optional UI filter, so a stale setting cannot make non-chat records visible. Optional bot, command, duplicate, and repeated-spam filters run only after that boundary.
+
+Messages are deduplicated conservatively and held in a bounded model. The default retention is 750 messages. The two platform paths are independent upstream; a missing TikTok message never blocks a Twitch message. Because the POST path is fire-and-forget rather than a persistent collector socket, a platform is shown as **RECEIVING** only after recent viewer chat and ages to **NO RECENT DATA** after 30 seconds of silence. Social Stream Ninja/browser owns upstream reconnection.
 
 The local POST path is fire-and-forget and has no replay queue. Start the console before starting chat collection.
 
@@ -69,6 +71,12 @@ Runtime state lives outside the Git repository:
 ```
 
 Configuration is written atomically. Logs rotate and record lifecycle/connection/error events only; chat text, cookies, passwords, stream keys, OAuth tokens, and Social Stream session identifiers are not logged.
+
+## Window integration
+
+Normal framed mode keeps the native Windows non-client frame. Windows therefore owns edge resizing, the maximize button, and Windows 11 Snap Layouts shown when the maximize button is hovered. Restored window geometry is fitted to the selected display's available work area so its title bar and resize frame remain reachable.
+
+Borderless mode deliberately removes the native frame for a clean presentation. Without that frame there are no native resize edges, maximize-button hover target, or Windows 11 Snap Layouts. Returning to normal framed mode restores those Windows features; borderless and always-on-top remain independent preferences.
 
 ## Resource model
 

@@ -85,13 +85,13 @@ class ConnectionState(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class FilterSettings:
-    """Optional filters.  All defaults preserve viewer messages."""
+    """Optional filters applied after the mandatory chat-only boundary."""
 
     hide_bot_messages: bool = False
     hide_commands: bool = False
     collapse_duplicates: bool = False
     suppress_repeated_spam: bool = False
-    show_system_messages: bool = True
+    show_system_messages: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,7 +194,9 @@ class ChatMessage:
             sequence=int(getter("sequence", sequence_fallback) or sequence_fallback),
             received_at=_coerce_datetime(getter("received_at", None)),
             platform=Platform.coerce(getter("platform", "system")),
-            username=str(getter("username", getter("name", "Viewer")) or "Viewer").strip(),
+            # Viewer identity is part of the chat-only contract. Do not invent
+            # one for platform notices that bypass the normalizer.
+            username=str(getter("username", getter("name", "")) or "").strip(),
             text=str(getter("text", getter("message", getter("content", ""))) or ""),
             kind=kind,
             event_type=event_type.strip(),
@@ -370,7 +372,11 @@ class ChatListModel(QAbstractListModel):
 
     def _accepts(self, message: ChatMessage) -> bool:
         filters = self._preferences.filters
-        if message.kind is MessageKind.SYSTEM and not filters.show_system_messages:
+        if (
+            message.kind is not MessageKind.CHAT
+            or message.platform is Platform.SYSTEM
+            or not message.username.strip()
+        ):
             return False
         if filters.hide_bot_messages and message.is_bot:
             return False

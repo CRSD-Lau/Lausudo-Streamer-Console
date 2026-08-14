@@ -1,7 +1,7 @@
 # Lausudo Streamer Console
 
 Streamer Console is a lightweight native Qt dashboard for the left 1080×1920
-portrait monitor. It presents Twitch and TikTok LIVE messages in one
+portrait monitor. It presents genuine Twitch and TikTok LIVE viewer chat in one
 receipt-ordered feed, displays read-only OBS/Aitum state, and exposes the same
 F1 BRB/privacy and F2 Discord-mute controls already used by the keyboard.
 
@@ -23,11 +23,17 @@ Discord button ─ F2 ─ existing AutoHotkey/Discord native Toggle Mute
 
 Messages receive a local sequence when they arrive, so the feed stays
 chronological across platforms. Retention is bounded at 750 messages by
-default. Twitch and TikTok collection are independent; one source failing
-does not stop the other or OBS status. Since the local POST transport has no
-persistent connection, a platform shows **RECEIVING** after recent data and
-ages to **NO RECENT DATA** after 30 seconds; Social Stream Ninja/browser owns
-upstream reconnection.
+default. The chat boundary structurally discards standalone follow,
+subscription, gift, raid, bits, platform-notice, system, counter, and other
+non-chat payloads; they cannot enter the retained conversation model or be
+re-enabled by a display setting. A real viewer message remains chat even when
+it carries subscriber, cheer, or badge metadata. Optional bot, command,
+duplicate, and repeated-spam filters apply only to otherwise valid viewer chat.
+Twitch and TikTok collection are
+independent; one source failing does not stop the other or OBS status. Since the
+local POST transport has no persistent connection, a platform shows
+**RECEIVING** after recent viewer chat and ages to **NO RECENT DATA** after 30
+seconds; Social Stream Ninja/browser owns upstream reconnection.
 
 ## Requirements
 
@@ -69,7 +75,11 @@ Double-click `Start-StreamerConsole.ps1`, or run:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\Projects\StreamerConsole\Start-StreamerConsole.ps1'
 ```
 
-The app defaults to the available portrait display. Window placement, size,
+The app defaults to the available portrait display. In normal framed mode it
+uses the native Windows title bar and resize edges, including Windows 11 Snap
+Layouts from the maximize-button hover menu. Optional borderless mode removes
+that native frame, so native edge resizing and Snap Layouts are unavailable
+until normal framed mode is restored. Window placement, size, maximized state,
 font size, spacing, filters, highlight terms, borderless mode, and always-on-
 top mode are remembered locally.
 

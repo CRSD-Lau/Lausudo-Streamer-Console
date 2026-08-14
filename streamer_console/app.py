@@ -361,7 +361,9 @@ class StreamerConsoleRuntime(QObject):
                 repeated_spam_window_seconds=(
                     existing_filters.repeated_spam_window_seconds
                 ),
-                hide_system_messages=not filters.show_system_messages,
+                # Events and system notices never enter the chat model. Keep
+                # the persisted compatibility flag aligned with that contract.
+                hide_system_messages=True,
             ),
         )
         # Ingestion applies changes to subsequent messages while the Qt model
