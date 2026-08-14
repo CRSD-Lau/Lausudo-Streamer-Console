@@ -191,8 +191,11 @@ class SocialStreamIngestServer:
                         self._json(HTTPStatus.BAD_REQUEST, {"error": "object_required"})
                         return
                     accepted, ignored = owner._normalize_and_enqueue(candidates)
+                    # Social Stream Ninja treats HTTP 200 as its explicit
+                    # delivery-success signal. Processing is synchronous here,
+                    # so OK is also the accurate status for accepted batches.
                     self._json(
-                        HTTPStatus.ACCEPTED,
+                        HTTPStatus.OK,
                         {"accepted": accepted, "ignored": ignored},
                     )
                     LOGGER.debug(

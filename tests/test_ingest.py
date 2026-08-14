@@ -59,7 +59,7 @@ class IngestServerTests(unittest.TestCase):
         )
 
         messages = self.server.drain()
-        self.assertEqual(status, 202)
+        self.assertEqual(status, 200)
         self.assertEqual(response, {"accepted": 1, "ignored": 0})
         self.assertEqual(len(messages), 1)
         self.assertEqual(messages[0].text, "nice pull")
@@ -79,7 +79,7 @@ class IngestServerTests(unittest.TestCase):
         )
 
         messages = self.server.drain()
-        self.assertEqual(status, 202)
+        self.assertEqual(status, 200)
         self.assertEqual(response, {"accepted": 2, "ignored": 1})
         self.assertEqual([message.sequence for message in messages], [1, 2])
 
@@ -190,8 +190,8 @@ class IngestServerTests(unittest.TestCase):
         self.assertFalse(first.is_alive())
         self.assertFalse(second.is_alive())
         self.assertEqual(errors, [])
-        self.assertEqual(completed["first"][0], 202)
-        self.assertEqual(completed["second"][0], 202)
+        self.assertEqual(completed["first"][0], 200)
+        self.assertEqual(completed["second"][0], 200)
         messages = self.server.drain()
         self.assertEqual([message.sequence for message in messages], [1, 2])
         self.assertEqual([message.text for message in messages], ["one", "two"])
