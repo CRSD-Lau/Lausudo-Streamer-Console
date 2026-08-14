@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=78"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lausudo-streamer-console"
+version = "0.1.0"
+description = "A lightweight portrait console for unified Twitch and TikTok LIVE chat."
+requires-python = ">=3.11"
+dependencies = [
+  "PySide6>=6.11,<7",
+  "websockets>=16,<17",
+]
+
+[project.scripts]
+streamer-console = "streamer_console.app:main"
+
+[tool.setuptools]
+packages = ["streamer_console"]
+
+[tool.setuptools.package-data]
+streamer_console = ["assets/*.png"]
+
+[tool.unittest]
+start-directory = "tests"

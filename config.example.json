@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "window": {
+    "width": 1080,
+    "height": 1920,
+    "x": null,
+    "y": null,
+    "monitor_name": "",
+    "borderless": false,
+    "always_on_top": false,
+    "maximized": false
+  },
+  "chat": {
+    "font_size": 28,
+    "message_spacing": 18,
+    "max_messages": 750,
+    "show_timestamps": false,
+    "highlight_terms": [
+      "Lausudo",
+      "@Lausudo"
+    ],
+    "filters": {
+      "hide_bots": false,
+      "bot_names": [],
+      "hide_commands": false,
+      "hide_duplicates": false,
+      "hide_repeated_spam": false,
+      "repeated_spam_threshold": 3,
+      "repeated_spam_window_seconds": 20.0,
+      "hide_system_messages": false
+    }
+  },
+  "ingest": {
+    "host": "127.0.0.1",
+    "port": 17840,
+    "path": "/ingest/socialstream",
+    "max_body_bytes": 262144,
+    "queue_size": 1000
+  },
+  "obs": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 0,
+    "poll_interval_seconds": 1.5,
+    "reconnect_initial_seconds": 1.0,
+    "reconnect_max_seconds": 20.0,
+    "mic_input": "Mic/Aux",
+    "brb_main_scene": "BRB - Main",
+    "brb_vertical_scene": "BRB - Vertical",
+    "aitum_vendor_name": "aitum-stream-suite",
+    "aitum_vertical_canvas": "Vertical"
+  },
+  "logging": {
+    "level": "INFO",
+    "max_bytes": 1048576,
+    "backup_count": 3
+  },
+  "start_with_windows": false
+}
