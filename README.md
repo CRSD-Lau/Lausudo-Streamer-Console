@@ -34,6 +34,8 @@ independent; one source failing does not stop the other or OBS status. Since the
 local POST transport has no persistent connection, a platform shows
 **RECEIVING** after recent viewer chat and ages to **NO RECENT DATA** after 30
 seconds; Social Stream Ninja/browser owns upstream reconnection.
+Teal status dots mean the local collector is ready or has recently received
+chat. Reconnecting remains amber and disconnected remains red.
 
 ## Requirements
 

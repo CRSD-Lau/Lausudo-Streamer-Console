@@ -319,7 +319,8 @@ class PortraitWindowTests(unittest.TestCase):
             self.assertLessEqual(metric.minimumSizeHint().width(), metric.width())
         self.assertIn("F1", self.window.brb_button.text())
         self.assertIn("F2", self.window.discord_button.text())
-        self.assertIn("STATE UNAVAILABLE", self.window.discord_button.text())
+        self.assertIn("TOGGLE MUTE", self.window.discord_button.text())
+        self.assertNotIn("UNAVAILABLE", self.window.discord_button.text())
 
     def test_manual_scrollback_pauses_then_resume_follows_live_chat(self) -> None:
         self.window.resize(640, 900)
@@ -429,6 +430,32 @@ class PortraitWindowTests(unittest.TestCase):
         pump_events()
         self.assertEqual(self.window.brb_button.property("state"), "brb")
         self.assertIn("BRB ACTIVE", self.window.brb_button.text())
+
+    def test_ready_indicators_use_teal_state_without_claiming_chat_connection(self) -> None:
+        self.window.update_connection(
+            Platform.TWITCH, ConnectionState.UNKNOWN, "WAITING FOR CHAT"
+        )
+        self.window.update_connection(
+            Platform.TIKTOK, ConnectionState.UNKNOWN, "NO RECENT DATA"
+        )
+        self.window.update_obs_status({"connected": True, "streaming": False})
+        pump_events()
+
+        self.assertEqual(self.window.twitch_connection.dot.property("state"), "ready")
+        self.assertEqual(self.window.tiktok_connection.dot.property("state"), "ready")
+        self.assertEqual(self.window.twitch_connection.detail.text(), "WAITING FOR CHAT")
+        self.assertEqual(self.window.tiktok_connection.detail.text(), "NO RECENT DATA")
+        self.assertEqual(self.window.live_tally.text(), "READY")
+        self.assertEqual(self.window.live_tally.property("state"), "ready")
+        self.assertEqual(self.window.live_tally_dot.property("state"), "ready")
+
+        self.window.update_connection(
+            Platform.TWITCH, ConnectionState.DISCONNECTED, "DISCONNECTED"
+        )
+        pump_events()
+        self.assertEqual(
+            self.window.twitch_connection.dot.property("state"), "disconnected"
+        )
 
     def test_buttons_emit_shared_control_requests_without_optimistic_state(self) -> None:
         events: list[str] = []

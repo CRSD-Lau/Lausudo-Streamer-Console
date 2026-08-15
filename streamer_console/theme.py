@@ -106,23 +106,32 @@ QLabel#connectionDetail {{
     color: {COLORS.muted};
 }}
 QLabel#connectionDot {{ font-size: 18px; color: {COLORS.muted}; }}
+QLabel#connectionDot[state="ready"],
 QLabel#connectionDot[state="connected"] {{ color: {COLORS.teal}; }}
 QLabel#connectionDot[state="reconnecting"] {{ color: {COLORS.amber}; }}
 QLabel#connectionDot[state="disconnected"] {{ color: {COLORS.danger}; }}
-QLabel#connectionDot[platform="twitch"][state="connected"] {{ color: {COLORS.twitch}; }}
-QLabel#connectionDot[platform="tiktok"][state="connected"] {{ color: {COLORS.tiktok}; }}
-QLabel#liveTally {{
+QFrame#liveTally {{
+    border: 1px solid {COLORS.line};
+    border-radius: 7px;
+    background: {COLORS.panel};
+}}
+QLabel#liveTallyDot {{
+    font-size: 18px;
+    color: {COLORS.muted};
+}}
+QLabel#liveTallyDot[state="ready"],
+QLabel#liveTallyDot[state="live"] {{ color: {COLORS.teal}; }}
+QLabel#liveTallyText {{
     font-family: "{DISPLAY_FONT}";
     font-size: 14px;
     font-weight: 700;
-    padding: 8px 13px;
-    border: 1px solid {COLORS.line};
-    border-radius: 7px;
     color: {COLORS.muted};
-    background: {COLORS.panel};
 }}
-QLabel#liveTally[state="live"] {{
+QLabel#liveTallyText[state="ready"],
+QLabel#liveTallyText[state="live"] {{
     color: {COLORS.mist};
+}}
+QFrame#liveTally[state="live"] {{
     border-color: {COLORS.teal_dark};
     background: {COLORS.deep_blue};
 }}

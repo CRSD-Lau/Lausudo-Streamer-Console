@@ -132,10 +132,19 @@ class ConnectionBadge(QWidget):
 
     def set_state(self, state: ConnectionState | str | bool, detail: str = "") -> None:
         normalized = ConnectionState.coerce(state)
-        self.dot.setProperty("state", normalized.value)
-        self.dot.setAccessibleName(f"{self.platform.value} {normalized.value}")
+        normalized_detail = detail.strip().upper()
+        display_state = normalized.value
+        if normalized is ConnectionState.UNKNOWN and normalized_detail in {
+            "WAITING FOR CHAT",
+            "NO RECENT DATA",
+        }:
+            # The local collector is ready even though no fresh platform
+            # message exists to prove an active upstream chat connection.
+            display_state = "ready"
+        self.dot.setProperty("state", display_state)
+        self.dot.setAccessibleName(f"{self.platform.value} {display_state}")
         repolish(self.dot)
-        self.detail.setText(detail.strip().upper() if detail.strip() else normalized.value.upper())
+        self.detail.setText(normalized_detail or normalized.value.upper())
 
 
 class Metric(QWidget):
@@ -577,13 +586,25 @@ class MainWindow(QMainWindow):
         brand_stack.addWidget(kicker)
         brand_stack.addWidget(brand)
         brand_stack.addStretch(1)
-        self.live_tally = QLabel("●  STANDBY")
-        self.live_tally.setObjectName("liveTally")
+        self.live_tally_box = QFrame()
+        self.live_tally_box.setObjectName("liveTally")
+        tally_layout = QHBoxLayout(self.live_tally_box)
+        tally_layout.setContentsMargins(13, 8, 13, 8)
+        tally_layout.setSpacing(8)
+        self.live_tally_dot = QLabel("●")
+        self.live_tally_dot.setObjectName("liveTallyDot")
+        self.live_tally = QLabel("STANDBY")
+        self.live_tally.setObjectName("liveTallyText")
+        self.live_tally_box.setProperty("state", "standby")
+        self.live_tally_dot.setProperty("state", "standby")
         self.live_tally.setProperty("state", "standby")
+        self.live_tally_dot.setAccessibleName("OBS standby")
+        tally_layout.addWidget(self.live_tally_dot)
+        tally_layout.addWidget(self.live_tally)
         header_layout.addWidget(logo)
         header_layout.addLayout(brand_stack)
         header_layout.addStretch(1)
-        header_layout.addWidget(self.live_tally)
+        header_layout.addWidget(self.live_tally_box)
         layout.addWidget(header)
 
         connection_strip = QFrame()
@@ -836,14 +857,21 @@ class MainWindow(QMainWindow):
         self.vertical_scene.setText(vertical_scene)
 
         if streaming is True:
-            self.live_tally.setText("●  LIVE")
-            self.live_tally.setProperty("state", "live")
+            tally_text = "LIVE"
+            tally_state = "live"
         elif connected is True:
-            self.live_tally.setText("●  READY")
-            self.live_tally.setProperty("state", "standby")
+            tally_text = "READY"
+            tally_state = "ready"
         else:
-            self.live_tally.setText("●  STANDBY")
-            self.live_tally.setProperty("state", "standby")
+            tally_text = "STANDBY"
+            tally_state = "standby"
+        self.live_tally.setText(tally_text)
+        self.live_tally_box.setProperty("state", tally_state)
+        self.live_tally_dot.setProperty("state", tally_state)
+        self.live_tally.setProperty("state", tally_state)
+        self.live_tally_dot.setAccessibleName(f"OBS {tally_text.lower()}")
+        repolish(self.live_tally_box)
+        repolish(self.live_tally_dot)
         repolish(self.live_tally)
 
         explicit_brb = _value(status, "brb_state", default=None)
@@ -901,7 +929,7 @@ class MainWindow(QMainWindow):
             text = "DISCORD MUTE\nF2 · LIVE" if compact else "DISCORD MUTE\nF2  •  MIC LIVE"
         else:
             state = "unknown"
-            text = "DISCORD MUTE\nF2 · UNKNOWN" if compact else "DISCORD MUTE\nF2  •  STATE UNAVAILABLE"
+            text = "DISCORD MUTE\nF2 · TOGGLE" if compact else "DISCORD MUTE\nF2  •  TOGGLE MUTE"
         self._discord_state = muted
         self.discord_button.setText(text)
         self.discord_button.setProperty("state", state)

@@ -38,6 +38,8 @@ Only genuine viewer-chat records from Twitch and TikTok cross the normalization 
 
 Messages are deduplicated conservatively and held in a bounded model. The default retention is 750 messages. The two platform paths are independent upstream; a missing TikTok message never blocks a Twitch message. Because the POST path is fire-and-forget rather than a persistent collector socket, a platform is shown as **RECEIVING** only after recent viewer chat and ages to **NO RECENT DATA** after 30 seconds of silence. Social Stream Ninja/browser owns upstream reconnection.
 
+The small teal status dot communicates a ready local collector or recently received chat without claiming a persistent upstream socket. Reconnecting is amber and disconnected is red.
+
 The local POST path is fire-and-forget and has no replay queue. Start the console before starting chat collection.
 
 ## OBS status

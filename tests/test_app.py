@@ -166,12 +166,13 @@ class StreamerConsoleRuntimeTests(unittest.TestCase):
         self.assertEqual(self.window._brb_state, "live")
         self.assertIn("LIVE", self.window.brb_button.text())
 
-    def test_f2_invokes_bridge_but_keeps_discord_state_unavailable(self) -> None:
+    def test_f2_invokes_bridge_without_fabricating_discord_mute_state(self) -> None:
         self.runtime._on_discord_requested()
         self.application.processEvents()
 
         self.assertEqual(self.controls.discord_calls, 1)
-        self.assertIn("STATE UNAVAILABLE", self.window.discord_button.text())
+        self.assertIn("TOGGLE MUTE", self.window.discord_button.text())
+        self.assertNotIn("UNAVAILABLE", self.window.discord_button.text())
 
     def test_preferences_and_window_state_are_saved_to_local_config(self) -> None:
         self.runtime.config.chat.filters.bot_names = ["Nightbot"]
