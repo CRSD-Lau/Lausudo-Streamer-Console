@@ -5,8 +5,8 @@ import unittest
 from streamer_console.models import ChatListModel, ChatPreferences, FilterSettings
 
 
-class ChatOnlyModelTests(unittest.TestCase):
-    def test_preserves_true_chat_and_rejects_event_and_system_records(self) -> None:
+class MeaningfulFeedModelTests(unittest.TestCase):
+    def test_preserves_true_chat_and_meaningful_events_but_rejects_noise(self) -> None:
         model = ChatListModel(
             preferences=ChatPreferences(
                 filters=FilterSettings(show_system_messages=True),
@@ -28,6 +28,13 @@ class ChatOnlyModelTests(unittest.TestCase):
                     "text": "hello",
                     "kind": "chat",
                     "metadata": {"membership": "SUBSCRIBER"},
+                },
+                {
+                    "platform": "tiktok",
+                    "username": "Supporter",
+                    "text": "followed the LIVE",
+                    "kind": "event",
+                    "event_type": "follow",
                 },
                 {
                     "platform": "tiktok",
@@ -62,7 +69,7 @@ class ChatOnlyModelTests(unittest.TestCase):
             ]
         )
 
-        self.assertEqual(added, 2)
+        self.assertEqual(added, 3)
         self.assertEqual(
             [
                 (message.platform.value, message.username, message.kind.value)
@@ -71,6 +78,7 @@ class ChatOnlyModelTests(unittest.TestCase):
             [
                 ("twitch", "System", "chat"),
                 ("tiktok", "Subscriber", "chat"),
+                ("tiktok", "Supporter", "event"),
             ],
         )
 

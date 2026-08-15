@@ -35,6 +35,7 @@ from .models import ChatPreferences, ConnectionState, Platform
 from .normalizer import MessageNormalizer
 from .obs_client import ObsMonitor, ObsStatus
 from .ui import MainWindow, ensure_application_theme
+from .twitch import TwitchService, TwitchUpdate
 
 
 LOGGER = logging.getLogger("streamer_console.app")
@@ -145,6 +146,7 @@ class StreamerConsoleRuntime(QObject):
         ingest_server: SocialStreamIngestServer | None = None,
         obs_monitor: ObsMonitor | None = None,
         control_bridge: ControlBridge | None = None,
+        twitch_service: TwitchService | None = None,
         simulate: bool = False,
     ) -> None:
         super().__init__()
@@ -162,16 +164,21 @@ class StreamerConsoleRuntime(QObject):
         )
         self.obs_monitor = obs_monitor or ObsMonitor(self.config.obs)
         self.control_bridge = control_bridge or ControlBridge()
+        self.twitch_service = twitch_service or TwitchService(
+            self.config.twitch, event_sink=getattr(self.ingest_server, "submit", None)
+        )
         self.window = window or MainWindow(
             preferences=self.config.chat,
             persist_settings=False,
             restore_geometry=False,
         )
+        self.window.set_twitch_client_id(self.config.twitch.client_id)
 
         self._started = False
         self._stopped = False
         self._simulation_index = 0
         self._platform_last_seen: dict[str, float] = {}
+        self._official_twitch_event_types: set[str] = set()
         self._connection_stale_seconds = 30.0
 
         self._ingest_timer = QTimer(self)
@@ -180,6 +187,9 @@ class StreamerConsoleRuntime(QObject):
         self._obs_timer = QTimer(self)
         self._obs_timer.setInterval(250)
         self._obs_timer.timeout.connect(self._drain_obs)
+        self._twitch_timer = QTimer(self)
+        self._twitch_timer.setInterval(100)
+        self._twitch_timer.timeout.connect(self._drain_twitch)
         self._connection_timer = QTimer(self)
         self._connection_timer.setInterval(5_000)
         self._connection_timer.timeout.connect(self._age_connection_statuses)
@@ -196,6 +206,12 @@ class StreamerConsoleRuntime(QObject):
         self.window.preferences_changed.connect(self._on_preferences_changed)
         self.window.window_preferences_changed.connect(
             self._on_window_preferences_changed
+        )
+        self.window.twitch_connect_requested.connect(self._on_twitch_connect)
+        self.window.twitch_refresh_requested.connect(self.twitch_service.refresh_info)
+        self.window.twitch_update_requested.connect(self.twitch_service.update_info)
+        self.window.twitch_category_search_requested.connect(
+            self.twitch_service.search_categories
         )
         self.window.installEventFilter(self)
         self.application.aboutToQuit.connect(self.shutdown)
@@ -224,12 +240,17 @@ class StreamerConsoleRuntime(QObject):
             )
             self.window.brb_button.setEnabled(False)
             self.window.discord_button.setEnabled(False)
+            self.window.stream_info_button.setEnabled(False)
             self.window.statusBar().showMessage(
                 "SIMULATION MODE — local messages only; controls disabled"
             )
             self._simulation_timer.start()
             self._emit_simulated_message()
             return
+
+        if self.config.twitch.enabled:
+            self.twitch_service.start()
+            self._twitch_timer.start()
 
         try:
             self.ingest_server.start()
@@ -281,7 +302,19 @@ class StreamerConsoleRuntime(QObject):
             return
         if not messages:
             return
-        self.window.add_messages(messages)
+        visible_messages = [
+            message
+            for message in messages
+            if not (
+                str(getattr(message, "platform", "")).casefold() == "twitch"
+                and str(getattr(message, "kind", "")).casefold() == "event"
+                and str(getattr(message, "event_type", "")).casefold()
+                in self._official_twitch_event_types
+                and not str(getattr(message, "source_id", "")).startswith("eventsub:")
+            )
+        ]
+        if visible_messages:
+            self.window.add_messages(visible_messages)
         received_platforms = {
             str(getattr(message, "platform", "")).strip().casefold()
             for message in messages
@@ -324,6 +357,47 @@ class StreamerConsoleRuntime(QObject):
             # Only the newest snapshot matters; this also prevents UI lag after
             # a temporarily blocked event loop.
             self.window.update_obs_status(obs_status_payload(statuses[-1]))
+
+    def _drain_twitch(self) -> None:
+        try:
+            updates = self.twitch_service.drain(100)
+        except Exception as exc:
+            LOGGER.error("Twitch update drain failed type=%s", type(exc).__name__)
+            return
+        for update in updates:
+            if update.kind == "event":
+                raw = update.payload.get("message", {})
+                if isinstance(raw, Mapping):
+                    message = self.normalizer.normalize(raw)
+                    if message is not None:
+                        self.window.add_message(message)
+                        self._platform_last_seen["twitch"] = time.monotonic()
+                        self.window.update_connection(
+                            Platform.TWITCH, ConnectionState.CONNECTED, "RECEIVING"
+                        )
+            else:
+                self.window.update_twitch(update)
+                if update.kind == "eventsub_status" and update.payload.get("connected"):
+                    event_types = update.payload.get("event_types", ())
+                    if isinstance(event_types, (list, tuple, set)):
+                        self._official_twitch_event_types = {
+                            str(value).casefold() for value in event_types
+                        }
+                    self.window.update_connection(
+                        Platform.TWITCH, ConnectionState.CONNECTED, "ALERTS READY"
+                    )
+
+    def _on_twitch_connect(self, client_id: str) -> None:
+        normalized = client_id.strip()
+        if not normalized:
+            self.window.update_twitch(
+                TwitchUpdate("error", {"message": "Enter the Twitch Client ID first"})
+            )
+            return
+        self.config.twitch.client_id = normalized
+        self.window.set_twitch_client_id(normalized)
+        self._schedule_save()
+        self.twitch_service.connect(normalized)
 
     def _emit_simulated_message(self) -> None:
         payload = dict(
@@ -446,6 +520,7 @@ class StreamerConsoleRuntime(QObject):
             self._connection_timer,
             self._save_timer,
             self._simulation_timer,
+            self._twitch_timer,
         ):
             timer.stop()
         try:
@@ -462,6 +537,10 @@ class StreamerConsoleRuntime(QObject):
                 self.obs_monitor.stop()
             except Exception as exc:
                 LOGGER.error("OBS shutdown failed type=%s", type(exc).__name__)
+            try:
+                self.twitch_service.stop()
+            except Exception as exc:
+                LOGGER.error("Twitch shutdown failed type=%s", type(exc).__name__)
         LOGGER.info("Streamer Console stopped")
 
 

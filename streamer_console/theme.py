@@ -220,8 +220,27 @@ QLabel#keyHint {{
     color: {COLORS.muted};
 }}
 QDialog, QGroupBox {{ background: {COLORS.ink}; }}
-QDialog#readerSettings {{ min-width: 540px; }}
-QSpinBox, QLineEdit {{
+QDialog#readerSettings, QDialog#twitchStreamInfo {{ min-width: 540px; }}
+QLabel#twitchAuthStatus {{
+    min-height: 36px;
+    padding: 0 10px;
+    border: 1px solid {COLORS.line};
+    border-radius: 6px;
+    background: {COLORS.panel};
+    color: {COLORS.muted};
+    font-family: "{DISPLAY_FONT}";
+    font-weight: 650;
+}}
+QLabel#twitchAuthStatus[state="connected"] {{ color: {COLORS.teal}; border-color: {COLORS.teal_dark}; }}
+QLabel#twitchAuthStatus[state="warning"] {{ color: {COLORS.amber}; }}
+QLabel#authorizationCode {{
+    padding: 12px;
+    border: 1px solid {COLORS.teal_dark};
+    border-radius: 6px;
+    background: {COLORS.deep_blue};
+    font-family: "{MONO_FONT}";
+}}
+QSpinBox, QLineEdit, QComboBox {{
     min-height: 38px;
     padding: 0 10px;
     border: 1px solid {COLORS.line};

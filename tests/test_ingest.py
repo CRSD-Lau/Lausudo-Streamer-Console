@@ -83,7 +83,7 @@ class IngestServerTests(unittest.TestCase):
         self.assertEqual(response, {"accepted": 2, "ignored": 1})
         self.assertEqual([message.sequence for message in messages], [1, 2])
 
-    def test_batch_delivers_only_structural_viewer_chat(self) -> None:
+    def test_batch_delivers_viewer_chat_and_meaningful_alerts_only(self) -> None:
         self.server.settings.max_body_bytes = 4096
         status, response = post(
             self.host,
@@ -129,13 +129,14 @@ class IngestServerTests(unittest.TestCase):
 
         messages = self.server.drain()
         self.assertEqual(status, 200)
-        self.assertEqual(response, {"accepted": 2, "ignored": 3})
-        self.assertEqual([message.sequence for message in messages], [1, 2])
+        self.assertEqual(response, {"accepted": 3, "ignored": 2})
+        self.assertEqual([message.sequence for message in messages], [1, 2, 3])
         self.assertEqual(
             [(message.platform, message.username, message.kind) for message in messages],
             [
                 ("TWITCH", "System", "chat"),
                 ("TIKTOK", "Subscriber", "chat"),
+                ("TWITCH", "Raider", "event"),
             ],
         )
 

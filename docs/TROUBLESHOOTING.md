@@ -17,7 +17,18 @@
 
 ## Follow, subscription, gift, raid, or platform notices do not appear
 
-This is expected. Streamer Console is intentionally a viewer-conversation surface and structurally accepts only Twitch or TikTok chat records with both a username and message text. Events, system records, platform notices, counters, placeholders, and unknown-platform payloads are discarded before the retained feed; there is no setting that enables them.
+- For Twitch follows and complete Twitch alert coverage, open **INFO** and finish the official Twitch Client ID/device-code authorization. Browser chat alone does not reliably expose new follows.
+- For TikTok alerts, keep the live TikTok page and Social Stream Ninja collector active.
+- Generic platform prompts, joins, likes, counters, and anonymous system cards are intentionally omitted even when collection is working.
+- If the INFO panel says permissions changed, choose **CONNECT TWITCH** again and approve the current scopes.
+
+## Twitch Stream Info cannot connect or update
+
+- Confirm the Client ID belongs to a public Twitch application. Do not enter a client secret.
+- Complete the device code in the browser before it expires.
+- Title/category updates require the Twitch account that owns the channel.
+- Category names use Twitch search; select the intended suggestion when names are similar.
+- Removing `%LOCALAPPDATA%\NeilMitchell\StreamerConsole\twitch-auth.dat` disconnects only the console's Twitch API integration; it does not affect OBS or Twitch chat.
 
 ## Chat works but OBS is disconnected
 

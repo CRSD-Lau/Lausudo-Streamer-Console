@@ -85,7 +85,7 @@ class ConnectionState(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class FilterSettings:
-    """Optional filters applied after the mandatory chat-only boundary."""
+    """Optional filters applied after the chat-and-meaningful-alert boundary."""
 
     hide_bot_messages: bool = False
     hide_commands: bool = False
@@ -373,10 +373,14 @@ class ChatListModel(QAbstractListModel):
     def _accepts(self, message: ChatMessage) -> bool:
         filters = self._preferences.filters
         if (
-            message.kind is not MessageKind.CHAT
+            message.kind not in {MessageKind.CHAT, MessageKind.EVENT}
             or message.platform is Platform.SYSTEM
             or not message.username.strip()
         ):
+            return False
+        if message.kind is MessageKind.EVENT and message.event_type.casefold() not in {
+            "follow", "subscription", "resub", "gift", "raid", "bits", "reward", "share"
+        }:
             return False
         if filters.hide_bot_messages and message.is_bot:
             return False

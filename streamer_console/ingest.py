@@ -222,6 +222,12 @@ class SocialStreamIngestServer:
     def drain(self, max_items: int = 200) -> list[NormalizedMessage]:
         return self.messages.drain(max_items)
 
+    def submit(self, payload: Mapping[str, Any]) -> bool:
+        """Submit a non-HTTP collector record into the same receipt-ordered queue."""
+
+        accepted, _ = self._normalize_and_enqueue((payload,))
+        return accepted == 1
+
     def _normalize_and_enqueue(self, candidates: Iterable[Any]) -> tuple[int, int]:
         accepted = 0
         ignored = 0

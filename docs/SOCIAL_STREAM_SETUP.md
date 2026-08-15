@@ -16,7 +16,7 @@ Use only the official Social Stream Ninja project and extension:
 
 ## Twitch
 
-For ordinary chat, keep the official Twitch chat or pop-out chat open with Social Stream Ninja enabled. Social Stream Ninja may collect richer follow, subscription, raid, bits, or other event payloads when separately authenticated, but Streamer Console deliberately discards them and displays only genuine viewer chat.
+For ordinary chat, keep the official Twitch chat or pop-out chat open with Social Stream Ninja enabled. Use the console's **INFO** control and one-time official Twitch authorization for reliable follows, subscriptions, resubs, gifted subscriptions, raids, Bits, reward redemptions, and title/category editing. Social Stream remains the chat collector.
 
 ## TikTok LIVE
 
@@ -30,4 +30,4 @@ With the loopback POST transport, the console can prove that its listener is rea
 
 ## What enters the feed
 
-The console accepts only Twitch or TikTok viewer-chat records containing both a username and message text. It structurally drops events, platform and system notices, counters, placeholders, and unknown-platform records before they reach the visible or retained chat model. This includes standalone follows, subscriptions, gifts, raids, bits notices, and similar Social Stream Ninja event payloads. Genuine viewer messages remain visible when they carry subscriber, cheer, donation, or badge metadata but are not source-marked as events. Bot, command, duplicate, and repeated-spam filtering remains optional and applies only to otherwise valid viewer chat.
+The console accepts Twitch/TikTok viewer chat plus named meaningful alerts: follows, subscriptions/resubs, gifted subscriptions, raids, Bits, TikTok gifts/shares, and reward redemptions where the source exposes them. It structurally drops generic system events, preview prompts, joins, likes, viewer counters, placeholders, anonymous notices, and unknown platforms. Bot, command, duplicate, and repeated-spam filtering remains optional and applies to otherwise valid viewer chat.

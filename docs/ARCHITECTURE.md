@@ -8,6 +8,7 @@ The console is a native Qt Widgets application built for a 1080x1920 portrait di
 Twitch chat page / connector ─┐
                               ├─ Social Stream Ninja ─ HTTP POST on 127.0.0.1 ─┐
 TikTok LIVE page / connector ─┘                                                │
+Twitch EventSub WebSocket ─ official named alerts ─ same receipt queue ────────┤
                                                                                ▼
                                                                      normalize + sequence
                                                                                │
@@ -24,7 +25,7 @@ F2 button ─ Win32 SendInput(F2) ─ existing AutoHotkey helper ─ Discord nat
 
 ## Chat collection
 
-Social Stream Ninja owns platform-specific collection and authentication. The console never reads browser cookies or stores Twitch/TikTok credentials.
+Social Stream Ninja owns browser-chat collection and authentication. The console never reads browser cookies. A separate official Twitch Device Code authorization powers Stream Info and EventSub; its token is encrypted with Windows DPAPI and never enters ordinary configuration or logs.
 
 The preferred transport is Social Stream Ninja's **Send all to POST server** option, pointed at:
 
@@ -34,13 +35,24 @@ http://127.0.0.1:17840/ingest/socialstream
 
 The receiver binds only to loopback, caps request size, validates JSON, assigns a local monotonic sequence and receipt time, converts supported message markup to plain text, and returns promptly. Provider timestamps are retained as metadata when present but do not control ordering.
 
-Only genuine viewer-chat records from Twitch and TikTok cross the normalization boundary. A record must identify one of those two platforms and contain both a viewer name and message text. Event-marked payloads, standalone follows, subscriptions, gifts, raids, bits notices, platform notices, system records, counters, placeholders, and unknown-platform payloads are structurally discarded before the retained model. A real viewer message is retained when it carries subscriber, cheer, donation, or badge metadata but is not source-marked as an event. This is an invariant rather than an optional UI filter, so a stale setting cannot make non-chat records visible. Optional bot, command, duplicate, and repeated-spam filters run only after that boundary.
+The normalization boundary accepts genuine viewer chat and a narrow named-event allowlist: follow, subscription, resubscription, gift, raid, Bits, reward redemption, and TikTok share. Each alert must identify a supported platform and viewer. Generic events, anonymous platform notices, joins, likes, counters, placeholders, and unknown-platform payloads are structurally discarded. This is an invariant rather than an optional UI filter. Optional bot, command, duplicate, and repeated-spam filters run only after that boundary.
 
 Messages are deduplicated conservatively and held in a bounded model. The default retention is 750 messages. The two platform paths are independent upstream; a missing TikTok message never blocks a Twitch message. Because the POST path is fire-and-forget rather than a persistent collector socket, a platform is shown as **RECEIVING** only after recent viewer chat and ages to **NO RECENT DATA** after 30 seconds of silence. Social Stream Ninja/browser owns upstream reconnection.
 
 The small teal status dot communicates a ready local collector or recently received chat without claiming a persistent upstream socket. Reconnecting is amber and disconnected is red.
 
 The local POST path is fire-and-forget and has no replay queue. Start the console before starting chat collection.
+
+## Twitch API and EventSub
+
+The INFO control uses Twitch's official Helix API to read and patch the current
+channel title/category. OAuth uses the public-client Device Code Grant, so the
+application requires a Client ID but never a client secret. Once authorized,
+the EventSub WebSocket subscribes independently to follows, subscriptions,
+resub messages, gifted subscriptions, cheers, incoming raids, and custom reward
+redemptions. Those records enter the same normalization and receipt-order queue
+as Social Stream messages. A Twitch API failure does not stop chat, OBS status,
+TikTok collection, or stream controls.
 
 ## OBS status
 

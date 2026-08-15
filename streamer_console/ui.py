@@ -21,6 +21,7 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
     Slot,
+    QUrl,
 )
 from PySide6.QtGui import (
     QColor,
@@ -37,12 +38,14 @@ from PySide6.QtGui import (
     QTextCursor,
     QTextDocument,
     QWheelEvent,
+    QDesktopServices,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QBoxLayout,
     QCheckBox,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -476,6 +479,146 @@ class ReaderSettingsDialog(QDialog):
         )
 
 
+class TwitchStreamInfoDialog(QDialog):
+    """Compact official Twitch channel-info and authorization surface."""
+
+    connect_requested = Signal(str)
+    refresh_requested = Signal()
+    update_requested = Signal(str, str)
+    category_search_requested = Signal(str)
+
+    def __init__(self, client_id: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("twitchStreamInfo")
+        self.setWindowTitle("Twitch Stream Info")
+        self.setMinimumWidth(560)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(24, 22, 24, 22)
+        root.setSpacing(13)
+
+        title = QLabel("TWITCH STREAM INFO")
+        title.setObjectName("sectionTitle")
+        root.addWidget(title)
+        self.status = QLabel("NOT CONNECTED")
+        self.status.setObjectName("twitchAuthStatus")
+        self.status.setWordWrap(True)
+        root.addWidget(self.status)
+
+        auth_label = QLabel("ONE-TIME TWITCH CONNECTION")
+        auth_label.setObjectName("settingSection")
+        root.addWidget(auth_label)
+        auth_form = QFormLayout()
+        self.client_id = QLineEdit(client_id)
+        self.client_id.setPlaceholderText("Twitch application Client ID")
+        self.client_id.setEchoMode(QLineEdit.EchoMode.Normal)
+        auth_form.addRow("Client ID", self.client_id)
+        root.addLayout(auth_form)
+        auth_row = QHBoxLayout()
+        self.connect_button = QPushButton("CONNECT TWITCH")
+        self.connect_button.setObjectName("twitchAction")
+        self.developer_button = QPushButton("GET CLIENT ID")
+        self.developer_button.setObjectName("secondaryAction")
+        auth_row.addWidget(self.connect_button, 1)
+        auth_row.addWidget(self.developer_button)
+        root.addLayout(auth_row)
+        self.authorization = QLabel("")
+        self.authorization.setObjectName("authorizationCode")
+        self.authorization.setWordWrap(True)
+        self.authorization.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.authorization.hide()
+        root.addWidget(self.authorization)
+
+        info_label = QLabel("CURRENT BROADCAST")
+        info_label.setObjectName("settingSection")
+        root.addWidget(info_label)
+        form = QFormLayout()
+        form.setVerticalSpacing(10)
+        self.stream_title = QLineEdit()
+        self.stream_title.setMaxLength(140)
+        self.category = QComboBox()
+        self.category.setEditable(True)
+        self.category.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.category.lineEdit().setPlaceholderText("World of Warcraft")
+        self._category_query = ""
+        self._category_timer = QTimer(self)
+        self._category_timer.setSingleShot(True)
+        self._category_timer.setInterval(300)
+        self._category_timer.timeout.connect(
+            lambda: self.category_search_requested.emit(self._category_query)
+        )
+        form.addRow("Title", self.stream_title)
+        form.addRow("Category", self.category)
+        root.addLayout(form)
+
+        actions = QDialogButtonBox()
+        self.refresh_button = actions.addButton("REFRESH", QDialogButtonBox.ButtonRole.ActionRole)
+        self.update_button = actions.addButton("UPDATE TWITCH", QDialogButtonBox.ButtonRole.AcceptRole)
+        close_button = actions.addButton(QDialogButtonBox.StandardButton.Close)
+        close_button.clicked.connect(self.close)
+        root.addWidget(actions)
+
+        self.connect_button.clicked.connect(
+            lambda: self.connect_requested.emit(self.client_id.text().strip())
+        )
+        self.developer_button.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://dev.twitch.tv/console/apps"))
+        )
+        self.refresh_button.clicked.connect(self.refresh_requested)
+        self.update_button.clicked.connect(
+            lambda: self.update_requested.emit(
+                self.stream_title.text().strip(), self.category.currentText().strip()
+            )
+        )
+        self.category.lineEdit().textEdited.connect(self._category_edited)
+
+    @Slot(str)
+    def _category_edited(self, text: str) -> None:
+        if len(text.strip()) >= 2:
+            self._category_query = text.strip()
+            self._category_timer.start()
+
+    def apply_update(self, update: Mapping[str, Any] | Any) -> None:
+        kind = str(_value(update, "kind", default="") or "")
+        payload = _value(update, "payload", default={}) or {}
+        if kind == "status":
+            connected = bool(_value(payload, "connected", default=False))
+            account = str(_value(payload, "account", default="") or "")
+            state = str(_value(payload, "state", default="") or "").replace("_", " ").upper()
+            self.status.setText(f"CONNECTED AS {account.upper()}" if connected and account else state)
+            self.status.setProperty("state", "connected" if connected else "warning")
+            repolish(self.status)
+        elif kind == "device_code":
+            code = str(_value(payload, "user_code", default="") or "")
+            url = str(_value(payload, "verification_url", default="") or "")
+            self.authorization.setText(f"Enter code  {code}  at {url}")
+            self.authorization.show()
+            if url:
+                QDesktopServices.openUrl(QUrl(url))
+        elif kind == "channel_info":
+            self.stream_title.setText(str(_value(payload, "title", default="") or ""))
+            category = str(_value(payload, "category", default="") or "")
+            self.category.setCurrentText(category)
+            self.authorization.hide()
+        elif kind == "categories":
+            current = self.category.currentText()
+            values = _value(payload, "values", default=[]) or []
+            self.category.blockSignals(True)
+            self.category.clear()
+            for value in values:
+                name = str(_value(value, "name", default="") or "")
+                if name:
+                    self.category.addItem(name, str(_value(value, "id", default="") or ""))
+            self.category.setCurrentText(current)
+            self.category.blockSignals(False)
+            if self.category.count():
+                self.category.showPopup()
+        elif kind in {"updated", "error"}:
+            message = str(_value(payload, "message", default="") or "")
+            self.status.setText(message.upper())
+            self.status.setProperty("state", "connected" if kind == "updated" else "warning")
+            repolish(self.status)
+
+
 class MainWindow(QMainWindow):
     """Portrait-first console with thread-safe integration entry points."""
 
@@ -486,6 +629,10 @@ class MainWindow(QMainWindow):
     discord_toggle_requested = Signal()
     preferences_changed = Signal(object)
     window_preferences_changed = Signal(object)
+    twitch_connect_requested = Signal(str)
+    twitch_refresh_requested = Signal()
+    twitch_update_requested = Signal(str, str)
+    twitch_category_search_requested = Signal(str)
 
     incoming_message = Signal(object)
     incoming_messages = Signal(object)
@@ -493,6 +640,7 @@ class MainWindow(QMainWindow):
     incoming_obs_status = Signal(object)
     incoming_brb_state = Signal(str)
     incoming_discord_state = Signal(object)
+    incoming_twitch_update = Signal(object)
 
     def __init__(
         self,
@@ -524,6 +672,9 @@ class MainWindow(QMainWindow):
         self._frame_fit_timer = QTimer(self)
         self._frame_fit_timer.setSingleShot(True)
         self._frame_fit_timer.timeout.connect(self._run_scheduled_frame_fit)
+        self._twitch_dialog: TwitchStreamInfoDialog | None = None
+        self._twitch_client_id = ""
+        self._twitch_updates: dict[str, Any] = {}
 
         loaded_preferences = (
             preferences
@@ -651,6 +802,9 @@ class MainWindow(QMainWindow):
         self.font_down = self._reader_tool("A−", "Decrease chat font")
         self.font_up = self._reader_tool("A+", "Increase chat font")
         self.settings_button = self._reader_tool("⚙", "Reader, filter and window settings")
+        self.stream_info_button = self._reader_tool("INFO", "Update Twitch stream title and category")
+        self.stream_info_button.setMinimumWidth(56)
+        chat_header_layout.addWidget(self.stream_info_button)
         chat_header_layout.addWidget(self.font_down)
         chat_header_layout.addWidget(self.font_up)
         chat_header_layout.addWidget(self.settings_button)
@@ -739,6 +893,7 @@ class MainWindow(QMainWindow):
         self.font_down.clicked.connect(lambda: self._bump_font(-2))
         self.font_up.clicked.connect(lambda: self._bump_font(2))
         self.settings_button.clicked.connect(self.open_settings)
+        self.stream_info_button.clicked.connect(self.open_twitch_stream_info)
         self.brb_button.clicked.connect(self.brb_requested)
         self.discord_button.clicked.connect(self.discord_toggle_requested)
         self.incoming_message.connect(self._append_message)
@@ -747,6 +902,7 @@ class MainWindow(QMainWindow):
         self.incoming_obs_status.connect(self._update_obs_status)
         self.incoming_brb_state.connect(self._set_brb_state)
         self.incoming_discord_state.connect(self._set_discord_state)
+        self.incoming_twitch_update.connect(self._update_twitch)
 
     def _reader_tool(self, text: str, tooltip: str) -> QToolButton:
         button = QToolButton()
@@ -785,12 +941,16 @@ class MainWindow(QMainWindow):
             self.metric_layout.setColumnStretch(1, 1)
             self.status_strip.setFixedHeight(135)
             control_style = "font-size: 15px; padding: 8px 10px;"
+            self.stream_info_button.setText("INFO")
+            self.stream_info_button.setMinimumWidth(56)
         else:
             for column, metric in enumerate(self._status_metrics):
                 self.metric_layout.addWidget(metric, 0, column)
                 self.metric_layout.setColumnStretch(column, 1)
             self.status_strip.setFixedHeight(105)
             control_style = ""
+            self.stream_info_button.setText("STREAM INFO")
+            self.stream_info_button.setMinimumWidth(92)
 
         self.brb_button.setStyleSheet(control_style)
         self.discord_button.setStyleSheet(control_style)
@@ -816,6 +976,37 @@ class MainWindow(QMainWindow):
 
     def set_discord_state(self, muted: bool | None) -> None:
         self.incoming_discord_state.emit(muted)
+
+    def set_twitch_client_id(self, client_id: str) -> None:
+        self._twitch_client_id = client_id
+
+    def update_twitch(self, update: Any) -> None:
+        self.incoming_twitch_update.emit(update)
+
+    @Slot()
+    def open_twitch_stream_info(self) -> None:
+        if self._twitch_dialog is None:
+            dialog = TwitchStreamInfoDialog(self._twitch_client_id, self)
+            dialog.connect_requested.connect(self.twitch_connect_requested)
+            dialog.refresh_requested.connect(self.twitch_refresh_requested)
+            dialog.update_requested.connect(self.twitch_update_requested)
+            dialog.category_search_requested.connect(self.twitch_category_search_requested)
+            self._twitch_dialog = dialog
+            for kind in ("status", "channel_info"):
+                cached = self._twitch_updates.get(kind)
+                if cached is not None:
+                    dialog.apply_update(cached)
+        self._twitch_dialog.show()
+        self._twitch_dialog.raise_()
+        self._twitch_dialog.activateWindow()
+
+    @Slot(object)
+    def _update_twitch(self, update: Any) -> None:
+        kind = str(_value(update, "kind", default="") or "")
+        if kind:
+            self._twitch_updates[kind] = update
+        if self._twitch_dialog is not None:
+            self._twitch_dialog.apply_update(update)
 
     @Slot(object)
     def _append_message(self, message: Any) -> None:

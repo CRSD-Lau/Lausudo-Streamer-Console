@@ -27,6 +27,41 @@ _NON_CHAT_MARKER_KEYS = (
     "system",
 )
 
+_MEANINGFUL_EVENT_ALIASES = {
+    "follow": "follow",
+    "followed": "follow",
+    "subscription": "subscription",
+    "subscribe": "subscription",
+    "sub": "subscription",
+    "subscriber": "subscription",
+    "resub": "resub",
+    "resubscription": "resub",
+    "gift": "gift",
+    "giftpurchase": "gift",
+    "subscriptiongift": "gift",
+    "subscriptionsgift": "gift",
+    "subgift": "gift",
+    "raid": "raid",
+    "bits": "bits",
+    "cheer": "bits",
+    "reward": "reward",
+    "redemption": "reward",
+    "channelpoints": "reward",
+    "share": "share",
+}
+_LOW_VALUE_EVENT_TYPES = {
+    "event",
+    "joined",
+    "join",
+    "liked",
+    "like",
+    "viewerupdate",
+    "viewers",
+    "topviewers",
+    "meta",
+    "system",
+}
+
 
 class _PlainTextHTMLParser(HTMLParser):
     _BLOCK_TAGS = {
@@ -167,6 +202,61 @@ def _marker_is_truthy(value: Any) -> bool:
     return True
 
 
+def _event_token(value: Any) -> str:
+    if not _marker_is_truthy(value) or isinstance(value, bool):
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", html_to_plain_text(value, max_length=80).casefold())
+
+
+def _meaningful_event_type(payload: Mapping[str, Any], platform: str) -> str:
+    """Return a normalized event type, rejecting noisy platform activity."""
+
+    if _marker_is_truthy(payload.get("system")):
+        return ""
+    token = ""
+    for key in ("eventType", "event_type", "event"):
+        candidate = _event_token(payload.get(key))
+        if candidate:
+            token = candidate
+            break
+    if token in _LOW_VALUE_EVENT_TYPES:
+        token = ""
+    event_type = _MEANINGFUL_EVENT_ALIASES.get(token, "")
+    if not event_type and any(
+        _marker_is_truthy(payload.get(key))
+        for key in ("membership", "subscription", "subscriber")
+    ):
+        event_type = "subscription"
+    if not event_type and any(
+        _marker_is_truthy(payload.get(key))
+        for key in ("hasDonation", "donation", "gift")
+    ):
+        event_type = "bits" if platform == "TWITCH" else "gift"
+    allowed = {
+        "TWITCH": {"follow", "subscription", "resub", "gift", "raid", "bits", "reward"},
+        "TIKTOK": {"follow", "subscription", "gift", "share"},
+    }
+    return event_type if event_type in allowed.get(platform, set()) else ""
+
+
+def _event_text(event_type: str, username: str, text: str, amount: str) -> str:
+    if text:
+        return text
+    descriptions = {
+        "follow": "followed the stream",
+        "subscription": "subscribed",
+        "resub": "resubscribed",
+        "gift": "sent a gift",
+        "raid": "raided the stream",
+        "bits": "cheered",
+        "reward": "redeemed a channel reward",
+        "share": "shared the LIVE",
+    }
+    description = descriptions.get(event_type, "supported the stream")
+    suffix = f" · {amount}" if amount else ""
+    return f"{username} {description}{suffix}"
+
+
 def _unwrap_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
     """Accept direct SSN messages and common webhook wrapper objects."""
 
@@ -258,13 +348,23 @@ class MessageNormalizer:
         text = html_to_plain_text(
             _first(payload, ("chatmessage", "text", "comment", "content"))
         )
-        is_non_chat = any(
-            _marker_is_truthy(payload.get(key)) for key in _NON_CHAT_MARKER_KEYS
+        is_non_chat = any(_marker_is_truthy(payload.get(key)) for key in _NON_CHAT_MARKER_KEYS)
+        event_type = _meaningful_event_type(payload, platform) if is_non_chat else ""
+        # Keep real viewer chat plus a narrow set of named stream alerts. Generic
+        # prompts, joins, likes, counters and anonymous platform cards never
+        # enter the retained model.
+        if platform not in {"TWITCH", "TIKTOK"} or not username:
+            return None
+
+        if is_non_chat and not event_type:
+            return None
+        amount = html_to_plain_text(
+            _first(payload, ("amount", "hasDonation", "donation", "gift")),
+            max_length=256,
         )
-        # The console is deliberately a conversation surface. Social Stream
-        # events, platform notices, counters, and placeholder strings are not
-        # viewer chat and must never enter the retained model.
-        if platform not in {"TWITCH", "TIKTOK"} or is_non_chat or not username or not text:
+        if is_non_chat:
+            text = _event_text(event_type, username, text, amount)
+        elif not text:
             return None
 
         source_id = html_to_plain_text(
@@ -336,14 +436,14 @@ class MessageNormalizer:
                 sequence=message_sequence,
                 received_at=_iso_utc(now),
                 platform=platform,
-                username=username or "System",
+                username=username,
                 text=text,
-                kind="chat",
-                event_type="",
+                kind="event" if event_type else "chat",
+                event_type=event_type,
                 highlight=highlighted,
                 source_id=source_id,
                 avatar_url=avatar_url,
-                amount="",
+                amount=amount if event_type else "",
             )
             self._messages.append(message)
             return message

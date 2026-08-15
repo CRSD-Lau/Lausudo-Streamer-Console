@@ -19,7 +19,7 @@ from streamer_console.models import (
 )
 from streamer_console.config import ChatSettings
 from streamer_console.config import WindowSettings
-from streamer_console.ui import MainWindow, ensure_application_theme
+from streamer_console.ui import MainWindow, TwitchStreamInfoDialog, ensure_application_theme
 
 
 def pump_events(rounds: int = 3) -> None:
@@ -473,6 +473,29 @@ class PortraitWindowTests(unittest.TestCase):
 
         self.assertEqual(events, ["brb", "discord"])
         self.assertEqual(self.window.brb_button.property("state"), original_brb_state)
+
+    def test_stream_info_dialog_emits_update_and_renders_authoritative_state(self) -> None:
+        dialog = TwitchStreamInfoDialog("client-id")
+        requested: list[tuple[str, str]] = []
+        dialog.update_requested.connect(
+            lambda title, category: requested.append((title, category))
+        )
+        dialog.apply_update(
+            {"kind": "status", "payload": {"connected": True, "account": "lausudo"}}
+        )
+        dialog.apply_update(
+            {
+                "kind": "channel_info",
+                "payload": {"title": "ICC tonight", "category": "World of Warcraft"},
+            }
+        )
+        dialog.update_button.click()
+        pump_events()
+
+        self.assertEqual(dialog.status.text(), "CONNECTED AS LAUSUDO")
+        self.assertEqual(dialog.stream_title.text(), "ICC tonight")
+        self.assertEqual(requested, [("ICC tonight", "World of Warcraft")])
+        dialog.close()
 
     def test_backend_window_settings_round_trip_hooks(self) -> None:
         self.window.restore_window_preferences(

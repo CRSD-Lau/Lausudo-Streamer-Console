@@ -35,7 +35,7 @@ class WindowSettings:
 
 @dataclass(slots=True)
 class FilterSettings:
-    """Optional viewer-chat filters; non-chat records always drop."""
+    """Optional viewer-chat filters; only meaningful named alerts also pass."""
 
     hide_bots: bool = False
     bot_names: list[str] = field(default_factory=list)
@@ -85,6 +85,12 @@ class ObsSettings:
 
 
 @dataclass(slots=True)
+class TwitchSettings:
+    enabled: bool = True
+    client_id: str = ""
+
+
+@dataclass(slots=True)
 class LoggingSettings:
     level: str = "INFO"
     max_bytes: int = 1_048_576
@@ -98,6 +104,7 @@ class AppConfig:
     chat: ChatSettings = field(default_factory=ChatSettings)
     ingest: IngestSettings = field(default_factory=IngestSettings)
     obs: ObsSettings = field(default_factory=ObsSettings)
+    twitch: TwitchSettings = field(default_factory=TwitchSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     start_with_windows: bool = False
 
@@ -140,6 +147,7 @@ def _coerce_dataclass(cls: type[T], value: Any) -> T:
                 "chat": ChatSettings,
                 "ingest": IngestSettings,
                 "obs": ObsSettings,
+                "twitch": TwitchSettings,
                 "logging": LoggingSettings,
             }
             if name in nested:
@@ -240,6 +248,8 @@ def _clamp_config(config: AppConfig) -> AppConfig:
         config.ingest = IngestSettings()
     if not isinstance(config.obs, ObsSettings):
         config.obs = ObsSettings()
+    if not isinstance(config.twitch, TwitchSettings):
+        config.twitch = TwitchSettings()
     if not isinstance(config.logging, LoggingSettings):
         config.logging = LoggingSettings()
 
@@ -342,6 +352,13 @@ def _clamp_config(config: AppConfig) -> AppConfig:
         defaults.obs.aitum_vertical_canvas,
         max_length=256,
     )
+
+    config.twitch.enabled = _safe_bool(
+        config.twitch.enabled, defaults.twitch.enabled
+    )
+    config.twitch.client_id = _safe_text(
+        config.twitch.client_id, defaults.twitch.client_id, max_length=128
+    ).strip()
 
     config.logging.level = _safe_text(
         config.logging.level, defaults.logging.level, max_length=16

@@ -97,7 +97,7 @@ class MessageNormalizerTests(unittest.TestCase):
         self.assertEqual(message.platform, "TWITCH")
         self.assertEqual(message.text, "hello")
 
-    def test_drops_named_events_and_events_without_chat_bodies(self) -> None:
+    def test_accepts_named_meaningful_events_and_builds_missing_body(self) -> None:
         named_event = normalize_social_stream_message(
             {
                 "type": "twitch",
@@ -117,8 +117,12 @@ class MessageNormalizerTests(unittest.TestCase):
             received_at=self.received_at,
         )
 
-        self.assertIsNone(named_event)
-        self.assertIsNone(bodyless_event)
+        self.assertIsNotNone(named_event)
+        self.assertIsNotNone(bodyless_event)
+        assert named_event is not None and bodyless_event is not None
+        self.assertEqual((named_event.kind, named_event.event_type), ("event", "gift"))
+        self.assertEqual((bodyless_event.kind, bodyless_event.event_type), ("event", "gift"))
+        self.assertIn("sent a gift", bodyless_event.text)
 
     def test_drops_tiktok_system_event_cards_seen_in_live_chat(self) -> None:
         notices = (
@@ -179,8 +183,8 @@ class MessageNormalizerTests(unittest.TestCase):
                 self.assertEqual(message.kind, "chat")
                 self.assertEqual(message.username, "Subscriber")
 
-    def test_drops_all_structural_non_chat_markers_and_unsupported_platforms(self) -> None:
-        payloads = (
+    def test_accepts_meaningful_markers_but_drops_system_and_unsupported_records(self) -> None:
+        accepted = (
             {
                 "type": "twitch",
                 "chatname": "Viewer",
@@ -193,6 +197,8 @@ class MessageNormalizerTests(unittest.TestCase):
                 "chatmessage": "followed the LIVE",
                 "event_type": "followed",
             },
+        )
+        rejected = (
             {
                 "type": "twitch",
                 "chatname": "Viewer",
@@ -206,11 +212,33 @@ class MessageNormalizerTests(unittest.TestCase):
             },
         )
 
-        for payload in payloads:
+        for payload in accepted:
+            with self.subTest(payload=payload):
+                message = normalize_social_stream_message(payload, received_at=self.received_at)
+                self.assertIsNotNone(message)
+                assert message is not None
+                self.assertEqual(message.kind, "event")
+
+        for payload in rejected:
             with self.subTest(payload=payload):
                 self.assertIsNone(
                     normalize_social_stream_message(
                         payload,
+                        received_at=self.received_at,
+                    )
+                )
+
+    def test_drops_low_value_tiktok_activity_even_with_named_viewer(self) -> None:
+        for marker in ("joined", "liked", "viewer_update", "event"):
+            with self.subTest(marker=marker):
+                self.assertIsNone(
+                    normalize_social_stream_message(
+                        {
+                            "type": "tiktok",
+                            "chatname": "Viewer",
+                            "chatmessage": "platform activity",
+                            "event": marker,
+                        },
                         received_at=self.received_at,
                     )
                 )

@@ -87,6 +87,19 @@ def message(sequence: int, platform: str, text: str) -> NormalizedMessage:
     )
 
 
+def event_message(sequence: int, source_id: str) -> NormalizedMessage:
+    return NormalizedMessage(
+        sequence=sequence,
+        received_at="2026-08-14T18:00:00.000Z",
+        platform="TWITCH",
+        username="Supporter",
+        text="followed the stream",
+        kind="event",
+        event_type="follow",
+        source_id=source_id,
+    )
+
+
 class StreamerConsoleRuntimeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -136,6 +149,20 @@ class StreamerConsoleRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(self.window.twitch_connection.detail.text(), "RECEIVING")
         self.assertEqual(self.window.tiktok_connection.detail.text(), "RECEIVING")
+
+    def test_official_eventsub_alert_suppresses_duplicate_browser_alert(self) -> None:
+        self.runtime._official_twitch_event_types = {"follow"}
+        self.ingest.messages.extend(
+            [event_message(1, "browser-event"), event_message(2, "eventsub:official")]
+        )
+
+        self.runtime._drain_messages()
+        self.application.processEvents()
+
+        self.assertEqual(
+            [item.source_id for item in self.window.model.messages],
+            ["eventsub:official"],
+        )
 
     def test_obs_snapshot_is_authoritative_for_brb_and_vertical_output(self) -> None:
         self.obs.statuses.append(
