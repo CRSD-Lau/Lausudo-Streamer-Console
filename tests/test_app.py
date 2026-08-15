@@ -8,7 +8,12 @@ import unittest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from streamer_console.app import StreamerConsoleRuntime, obs_status_payload
+from streamer_console.app import (
+    APP_USER_MODEL_ID,
+    StreamerConsoleRuntime,
+    obs_status_payload,
+    set_windows_app_user_model_id,
+)
 from streamer_console.config import AppConfig, ConfigStore
 from streamer_console.controls import ControlResult
 from streamer_console.models import ChatPreferences, FilterSettings
@@ -290,6 +295,21 @@ class SimulationAndMappingTests(unittest.TestCase):
         )
 
         self.assertIsNone(payload["vertical_active"])
+
+    def test_windows_app_identity_uses_stable_streamer_console_id(self) -> None:
+        class FakeShell32:
+            def __init__(self) -> None:
+                self.value = ""
+
+            def SetCurrentProcessExplicitAppUserModelID(self, value: str) -> int:
+                self.value = value
+                return 0
+
+        shell32 = FakeShell32()
+        self.assertTrue(
+            set_windows_app_user_model_id(shell32, platform_name="win32")
+        )
+        self.assertEqual(shell32.value, APP_USER_MODEL_ID)
 
 
 if __name__ == "__main__":

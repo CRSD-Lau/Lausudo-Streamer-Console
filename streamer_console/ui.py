@@ -26,6 +26,7 @@ from PySide6.QtGui import (
     QColor,
     QCloseEvent,
     QFont,
+    QIcon,
     QKeyEvent,
     QPainter,
     QPen,
@@ -74,6 +75,14 @@ from .models import (
     Platform,
 )
 from .theme import BODY_FONT, COLORS, DISPLAY_FONT, apply_theme, repolish
+
+
+def application_icon_path() -> Path:
+    """Return the packaged Frostgate Windows icon, with a PNG fallback."""
+
+    assets = Path(__file__).resolve().parent / "assets"
+    icon = assets / "lausudo-frostgate.ico"
+    return icon if icon.is_file() else assets / "lausudo-logo-600.png"
 
 
 def _value(source: Any, *names: str, default: Any = None) -> Any:
@@ -497,6 +506,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Lausudo Streamer Console")
+        self.setWindowIcon(QIcon(str(application_icon_path())))
         # Fits a practical half-width cell on the 1080 px portrait display.
         self.setMinimumSize(500, 640)
         self.resize(880, 1560)
@@ -1383,5 +1393,6 @@ def ensure_application_theme() -> QApplication:
     """Create/reuse a QApplication and install the branded palette."""
 
     application = QApplication.instance() or QApplication([])
+    application.setWindowIcon(QIcon(str(application_icon_path())))
     apply_theme(application)
     return application

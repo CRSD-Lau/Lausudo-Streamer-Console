@@ -110,6 +110,10 @@ class PortraitWindowTests(unittest.TestCase):
         self.assertTrue(bool(flags & Qt.WindowType.WindowMinimizeButtonHint))
         self.assertTrue(bool(flags & Qt.WindowType.WindowMaximizeButtonHint))
 
+    def test_frostgate_icon_is_installed_for_window_and_taskbar(self) -> None:
+        self.assertFalse(self.application.windowIcon().isNull())
+        self.assertFalse(self.window.windowIcon().isNull())
+
     def test_borderless_round_trip_restores_native_frame_controls(self) -> None:
         self.window.show()
         pump_events()

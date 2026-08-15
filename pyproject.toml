@@ -19,7 +19,7 @@ streamer-console = "streamer_console.app:main"
 packages = ["streamer_console"]
 
 [tool.setuptools.package-data]
-streamer_console = ["assets/*.png"]
+streamer_console = ["assets/*.png", "assets/*.ico"]
 
 [tool.unittest]
 start-directory = "tests"

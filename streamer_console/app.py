@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Mapping, Sequence
+import ctypes
 from dataclasses import asdict, is_dataclass
 import logging
 from pathlib import Path
@@ -37,6 +38,28 @@ from .ui import MainWindow, ensure_application_theme
 
 
 LOGGER = logging.getLogger("streamer_console.app")
+APP_USER_MODEL_ID = "NeilMitchell.StreamerConsole"
+
+
+def set_windows_app_user_model_id(
+    shell32: Any | None = None,
+    *,
+    platform_name: str | None = None,
+) -> bool:
+    """Give Windows a stable identity for taskbar grouping and pinning."""
+
+    if (platform_name or sys.platform) != "win32":
+        return False
+    try:
+        if shell32 is None:
+            setter = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+            setter.argtypes = [ctypes.c_wchar_p]
+            setter.restype = ctypes.c_long
+        else:
+            setter = shell32.SetCurrentProcessExplicitAppUserModelID
+        return int(setter(APP_USER_MODEL_ID)) == 0
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
 
 
 _SIMULATED_MESSAGES: tuple[dict[str, Any], ...] = (
@@ -466,6 +489,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    windows_identity_ready = set_windows_app_user_model_id()
     arguments = build_argument_parser().parse_args(
         list(argv) if argv is not None else sys.argv[1:]
     )
@@ -476,6 +500,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     config = store.load()
     configure_logging(config.logging)
     LOGGER.info("Application startup")
+    if sys.platform == "win32" and not windows_identity_ready:
+        LOGGER.warning("Windows taskbar application identity was unavailable")
 
     application = ensure_application_theme()
     application.setApplicationName("Streamer Console")

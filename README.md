@@ -85,6 +85,10 @@ until normal framed mode is restored. Window placement, size, maximized state,
 font size, spacing, filters, highlight terms, borderless mode, and always-on-
 top mode are remembered locally.
 
+The Frostgate castle is the native window and taskbar icon. A **Streamer
+Console** shortcut is installed in the current user's Start menu and may be
+pinned to the taskbar without changing startup behavior.
+
 For a safe, fully local visual smoke test (no OBS connection, no chat POSTs,
 and F1/F2 controls disabled):
 
@@ -99,7 +103,8 @@ py -3.13 -m streamer_console.app --simulate --run-seconds 15
   OBS and Aitum status snapshot.
 - **Discord Mute (F2):** sends F2 to the existing helper, which uses Discord's
   native Toggle Mute shortcut. Discord does not expose a supported local mute
-  state in this setup, so the console intentionally shows state unavailable.
+  state in this setup, so the button remains an honest toggle without claiming
+  a detected mute state.
 
 ## Local data and logging
 
