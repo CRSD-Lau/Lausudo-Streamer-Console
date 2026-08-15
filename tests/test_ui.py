@@ -109,6 +109,51 @@ class PortraitWindowTests(unittest.TestCase):
         self.assertTrue(bool(flags & Qt.WindowType.WindowSystemMenuHint))
         self.assertTrue(bool(flags & Qt.WindowType.WindowMinimizeButtonHint))
         self.assertTrue(bool(flags & Qt.WindowType.WindowMaximizeButtonHint))
+        self.assertTrue(bool(flags & Qt.WindowType.WindowCloseButtonHint))
+
+    def test_native_close_command_is_explicitly_enabled_on_windows(self) -> None:
+        class FakeUser32:
+            def __init__(self) -> None:
+                self.calls: list[tuple[object, ...]] = []
+
+            def GetSystemMenu(self, handle: int, revert: bool) -> int:
+                self.calls.append(("get", handle, revert))
+                return 321
+
+            def EnableMenuItem(self, menu: int, command: int, flags: int) -> int:
+                self.calls.append(("enable", menu, command, flags))
+                return 1
+
+            def DrawMenuBar(self, handle: int) -> bool:
+                self.calls.append(("draw", handle))
+                return True
+
+        native = FakeUser32()
+
+        self.assertTrue(
+            self.window._enable_native_close_button(
+                user32=native,
+                platform_name="windows",
+            )
+        )
+        self.assertIn(("enable", 321, 0xF060, 0), native.calls)
+        self.assertTrue(any(call[0] == "draw" for call in native.calls))
+
+    def test_borderless_window_does_not_modify_native_close_menu(self) -> None:
+        class FailingUser32:
+            def GetSystemMenu(self, *_args: object) -> int:
+                raise AssertionError(
+                    "native menu must not be touched in borderless mode"
+                )
+
+        self.window.set_window_options(borderless=True, always_on_top=False)
+
+        self.assertFalse(
+            self.window._enable_native_close_button(
+                user32=FailingUser32(),
+                platform_name="windows",
+            )
+        )
 
     def test_frostgate_icon_is_installed_for_window_and_taskbar(self) -> None:
         self.assertFalse(self.application.windowIcon().isNull())

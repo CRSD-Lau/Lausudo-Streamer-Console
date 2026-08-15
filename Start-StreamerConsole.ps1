@@ -17,4 +17,5 @@ if (-not (Test-Path -LiteralPath $Launcher -PathType Leaf)) {
 Start-Process `
     -FilePath $PythonWindowed `
     -ArgumentList @($Launcher) `
-    -WorkingDirectory $ProjectDirectory
+    -WorkingDirectory $ProjectDirectory `
+    -WindowStyle Hidden

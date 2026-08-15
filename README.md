@@ -112,6 +112,18 @@ The Frostgate castle is the native window and taskbar icon. A **Streamer
 Console** shortcut is installed in the current user's Start menu and may be
 pinned to the taskbar without changing startup behavior.
 
+Install or repair the Start-menu and existing pinned shortcuts with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\Projects\StreamerConsole\Install-StreamerConsoleShortcut.ps1'
+```
+
+The shortcut and running window use the same Windows application identity, so
+launching the pinned icon groups the open console over that icon instead of
+creating a second Python icon. The native close button is explicitly kept
+enabled in normal framed mode. Restart Streamer Console after an upgrade for
+window-level changes to take effect.
+
 For a safe, fully local visual smoke test (no OBS connection, no chat POSTs,
 and F1/F2 controls disabled):
 

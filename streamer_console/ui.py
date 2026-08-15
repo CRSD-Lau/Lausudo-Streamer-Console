@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+import ctypes
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -1165,6 +1166,8 @@ class MainWindow(QMainWindow):
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
         super().showEvent(event)
+        QTimer.singleShot(0, self._enable_native_close_button)
+        QTimer.singleShot(100, self._enable_native_close_button)
         if not self._borderless and not self.isMaximized():
             self._schedule_native_frame_fit()
 
@@ -1602,6 +1605,13 @@ class MainWindow(QMainWindow):
             desired_flags |= Qt.WindowType.FramelessWindowHint
         else:
             desired_flags &= ~Qt.WindowType.FramelessWindowHint
+            desired_flags |= (
+                Qt.WindowType.WindowTitleHint
+                | Qt.WindowType.WindowSystemMenuHint
+                | Qt.WindowType.WindowMinimizeButtonHint
+                | Qt.WindowType.WindowMaximizeButtonHint
+                | Qt.WindowType.WindowCloseButtonHint
+            )
         if self._always_on_top:
             desired_flags |= Qt.WindowType.WindowStaysOnTopHint
         else:
@@ -1631,6 +1641,42 @@ class MainWindow(QMainWindow):
 
         if was_visible and not self._borderless and not was_maximized:
             self._schedule_native_frame_fit()
+            QTimer.singleShot(0, self._enable_native_close_button)
+
+    def _enable_native_close_button(
+        self,
+        *,
+        user32: Any | None = None,
+        platform_name: str | None = None,
+    ) -> bool:
+        """Keep the native Windows Close command enabled after HWND changes."""
+
+        platform = (platform_name or QApplication.platformName()).casefold()
+        if self._borderless or platform != "windows":
+            return False
+        try:
+            native = user32 or ctypes.windll.user32
+            if user32 is None:
+                native.GetSystemMenu.argtypes = [ctypes.c_void_p, ctypes.c_bool]
+                native.GetSystemMenu.restype = ctypes.c_void_p
+                native.EnableMenuItem.argtypes = [
+                    ctypes.c_void_p,
+                    ctypes.c_uint,
+                    ctypes.c_uint,
+                ]
+                native.EnableMenuItem.restype = ctypes.c_uint
+                native.DrawMenuBar.argtypes = [ctypes.c_void_p]
+                native.DrawMenuBar.restype = ctypes.c_bool
+            handle = int(self.winId())
+            menu = native.GetSystemMenu(handle, False)
+            if not menu:
+                return False
+            # SC_CLOSE, MF_BYCOMMAND | MF_ENABLED.
+            result = int(native.EnableMenuItem(menu, 0xF060, 0x0000))
+            native.DrawMenuBar(handle)
+            return result != 0xFFFFFFFF
+        except (AttributeError, OSError, TypeError, ValueError):
+            return False
 
     def capture_window_preferences(self) -> dict[str, Any]:
         screen = self.screen()

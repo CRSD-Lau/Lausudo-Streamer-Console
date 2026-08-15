@@ -81,6 +81,16 @@ exact Twitch pop-out and TikTok LIVE pages without changing their settings.
 - Normal framed mode uses the native Windows resize edges and supports the Snap Layouts menu when the maximize button is hovered.
 - Borderless mode intentionally removes the native frame, so native edge resizing, the maximize hover target, and Snap Layouts are unavailable in that mode.
 
+## Close button is unavailable
+
+- Confirm **Borderless window** is off, then restart Streamer Console after updating it.
+- Normal framed mode explicitly enables Windows' native Close command; closing the window performs the normal bounded service shutdown and does not stop OBS, a stream, recording, or Virtual Camera.
+
+## Opening from the taskbar creates a second icon
+
+- Run `Install-StreamerConsoleShortcut.ps1` once to give the Start-menu and existing pinned shortcuts the same Windows application identity as the running console.
+- Restart Streamer Console from the pinned icon. If Windows retained an older cached pin, unpin it once and pin **Streamer Console** again from the Start menu.
+
 ## Logs
 
 Rotating diagnostic logs are under `%LOCALAPPDATA%\NeilMitchell\StreamerConsole`. Logs omit chat bodies and credentials.
