@@ -1,0 +1,37 @@
+name: Feature request
+description: Propose a focused, low-overhead improvement.
+title: "Feature: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What stream workflow or usability problem should be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest reliable solution and expected user experience.
+    validations:
+      required: true
+  - type: checkboxes
+    id: integrations
+    attributes:
+      label: Integration impact
+      options:
+        - label: Twitch
+        - label: TikTok or Social Stream Ninja
+        - label: OBS or Aitum
+        - label: Spotify
+        - label: Discord or global controls
+        - label: Windows UI
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Security, privacy, and resource impact
+      description: Note new permissions, stored data, network access, dependencies, or runtime overhead.
+    validations:
+      required: true

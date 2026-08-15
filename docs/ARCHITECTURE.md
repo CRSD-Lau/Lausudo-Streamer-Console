@@ -1,5 +1,8 @@
 # Streamer Console architecture
 
+The foundational technology and trust-boundary decision is recorded in
+[ADR-0001](adr/0001-native-qt-and-local-integrations.md).
+
 ## Design goals
 
 The console is a native Qt Widgets application built for a 1080x1920 portrait display. It is deliberately separate from OBS, TikTok LIVE Studio, Voicemeeter, Discord, and the game. A failure in one integration must not stop the others.

@@ -1,0 +1,69 @@
+name: Bug report
+description: Report reproducible Streamer Console behavior.
+title: "Bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include tokens, cookies, stream keys, OBS passwords, runtime configuration, production chat, or browser data. Report security issues privately through the Security tab.
+  - type: input
+    id: version
+    attributes:
+      label: Streamer Console version or commit
+      placeholder: v1.0.0 or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Windows, Python, OBS, Aitum, and Social Stream Ninja versions where relevant.
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Unified chat or alerts
+        - Twitch authorization or Stream Info
+        - TikTok or Social Stream Ninja
+        - OBS or Aitum status
+        - BRB or Discord control
+        - Spotify
+        - Window, taskbar, or display behavior
+        - Installation or documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Actual behavior
+      description: Describe what happened using sanitized details.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Sanitized reproduction steps
+      placeholder: |
+        1. Start ...
+        2. Open ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I removed credentials, private viewer data, and production configuration from this report.
+          required: true

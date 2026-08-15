@@ -4,8 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lausudo-streamer-console"
-version = "0.1.0"
+version = "1.0.0"
 description = "A lightweight portrait console for unified Twitch and TikTok LIVE chat."
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "PySide6>=6.11,<7",
@@ -16,6 +17,12 @@ dependencies = [
   "winrt-Windows.Media==3.2.1; platform_system == 'Windows'",
   "winrt-Windows.Storage.Streams==3.2.1; platform_system == 'Windows'",
 ]
+
+[project.urls]
+Homepage = "https://github.com/CRSD-Lau/Lausudo-Streamer-Console"
+Documentation = "https://github.com/CRSD-Lau/Lausudo-Streamer-Console#readme"
+Issues = "https://github.com/CRSD-Lau/Lausudo-Streamer-Console/issues"
+Security = "https://github.com/CRSD-Lau/Lausudo-Streamer-Console/security/policy"
 
 [project.scripts]
 streamer-console = "streamer_console.app:main"

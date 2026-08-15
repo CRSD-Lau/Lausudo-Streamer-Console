@@ -1,210 +1,192 @@
-# Lausudo Streamer Console
+<p align="center">
+  <img src="streamer_console/assets/lausudo-logo-600.png" alt="Lausudo Frostgate castle mark" width="104">
+</p>
 
-Streamer Console is a lightweight native Qt dashboard for the left 1080×1920
-portrait monitor. It presents Twitch and TikTok LIVE chat plus meaningful stream
-alerts in one receipt-ordered feed, displays read-only OBS/Aitum state, and exposes the same
-F1 BRB/privacy and F2 Discord-mute controls already used by the keyboard.
+<h1 align="center">Lausudo Streamer Console</h1>
 
-It does not replace or reconfigure OBS, Aitum, TikTok LIVE Studio,
-Voicemeeter, Discord, or the existing privacy controller.
+<p align="center">
+  A low-overhead Windows command center for one chronological Twitch + TikTok LIVE feed,
+  OBS status, raid-safe stream controls, audience telemetry, and Spotify playback.
+</p>
+
+<p align="center">
+  <a href="https://github.com/CRSD-Lau/Lausudo-Streamer-Console/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/CRSD-Lau/Lausudo-Streamer-Console/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="Python 3.11 and 3.13" src="https://img.shields.io/badge/Python-3.11%20%7C%203.13-3776AB?logo=python&logoColor=white">
+  <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows11&logoColor=white">
+  <img alt="Qt Widgets" src="https://img.shields.io/badge/UI-PySide6-41CD52?logo=qt&logoColor=white">
+  <img alt="No telemetry" src="https://img.shields.io/badge/Telemetry-None-2FB7B0">
+</p>
+
+<p align="center">
+  <img src="docs/images/streamer-console-preview.png" alt="Lausudo Streamer Console showing simulated Twitch and TikTok chat, stream status, audience counts, Spotify controls, and privacy controls" width="520">
+</p>
+
+## Why it exists
+
+Streamer Console turns a portrait monitor into a readable stream companion while
+leaving the game and production displays alone. It combines viewer conversation
+in receipt order instead of stacking two unrelated chat windows, surfaces only
+meaningful alerts, and keeps operational controls close without becoming a
+second source of truth for OBS.
+
+The application was built for the Lausudo Twitch + TikTok production stack. Its
+integrations are intentionally narrow, inspectable, and local-first.
+
+## Highlights
+
+| Area | What it does |
+| --- | --- |
+| Unified feed | Merges Twitch and TikTok viewer chat in local receipt order with bounded retention, compact rows, highlighting, and manual scrollback. |
+| Meaningful alerts | Shows named follows, subscriptions, resubs, gifts, raids, Bits, rewards, and TikTok shares while discarding generic platform noise. |
+| Live pulse | Displays Twitch viewers plus best-effort TikTok viewers, new follows, and captured likes for the current stream session. |
+| OBS awareness | Reads stream, recording, current main scene, Aitum vertical scene/output, microphone monitoring, Spotify monitoring, and BRB state. |
+| Raid controls | Sends the same F1 BRB/privacy and F2 Discord-mute hotkeys as the existing canonical automation—no competing state machine. |
+| Twitch Stream Info | Reads and updates the title/category through Twitch Helix using the public-client Device Code flow. |
+| Spotify remote | Uses the local Windows media session for previous, play/pause, next, metadata, and progress without changing stream audio routing. |
+| Windows-native shell | Supports native resizing, maximize, Windows 11 Snap Layouts, taskbar grouping, a branded icon, and remembered portrait placement. |
 
 ## Architecture
 
-```text
-Twitch EventSub ─ native chat + official alerts ─┐
-                                                 ├─ unified Qt feed
-TikTok chat ─ Social Stream Ninja ─ loopback POST┘
-
-Twitch EventSub ─ follows/subs/resubs/gifts/raids/Bits/rewards ─────┘
-
-Stream Info control ─ official Twitch Helix API ─ title + category
-
-Audience pulse ─ TikTok viewer/follow/like telemetry + Twitch Get Streams
-
-OBS WebSocket + Aitum vendor API ─ read-only status ────────────────┘
-
-Windows media session ─ Spotify metadata + previous/play/next (audio routing unchanged)
-
-BRB button ─ F1 ─ existing AutoHotkey/privacy controller
-Discord button ─ F2 ─ existing AutoHotkey/Discord native Toggle Mute
+```mermaid
+flowchart LR
+    T[Twitch EventSub] --> Q[Normalized receipt queue]
+    S[Social Stream Ninja<br>TikTok LIVE] -->|Loopback HTTP POST| Q
+    Q --> F[Bounded unified feed]
+    H[Twitch Helix] --> I[Stream info and viewers]
+    O[OBS WebSocket + Aitum] --> U[Qt portrait UI]
+    F --> U
+    I --> U
+    W[Windows media session] --> U
+    U -->|F1 / F2| A[Existing privacy and Discord automation]
 ```
 
-Messages receive a local sequence when they arrive, so the feed stays
-chronological across platforms. Retention is bounded at 750 messages by
-default. The feed accepts genuine viewer chat plus named, meaningful alerts:
-follows, subscriptions/resubs, gifted subscriptions, raids, Bits, TikTok gifts,
-shares, and channel-reward redemptions where supported. Anonymous platform
-prompts, joins, likes, viewer counters, placeholders, and generic system cards
-are structurally discarded. A real viewer message remains chat even when it
-carries subscriber, cheer, or badge metadata. Optional bot, command,
-duplicate, and repeated-spam filters apply only to otherwise valid viewer chat.
-Twitch and TikTok collection are
-independent; one source failing does not stop the other or OBS status. Since the
-local POST transport has no persistent connection, a platform shows
-**RECEIVING** after recent viewer chat and ages to **NO RECENT DATA** after 30
-seconds; Social Stream Ninja/browser owns upstream reconnection.
-Teal status dots mean the local collector is ready or has recently received
-chat. Reconnecting remains amber and disconnected remains red.
+The workers are isolated: losing OBS does not stop chat, and losing one chat
+source does not stop the other. See [Architecture](docs/ARCHITECTURE.md) for the
+ordering, resilience, and trust-boundary details.
 
-The compact audience pulse shows current TikTok viewers, new TikTok follows
-this stream, captured TikTok like activity this stream, and the
-current Twitch viewer count. Twitch refreshes through the official API about
-every 15 seconds. TikTok figures are best-effort telemetry from the open LIVE
-page; they do not add raw like/viewer notices back into chat. Follow/like totals
-reset when OBS transitions from stopped to streaming (or begin at console
-launch when the console attaches mid-stream).
+## Quick start
 
-## Requirements
+### Requirements
 
-- Windows 10/11
-- Python 3.13 at
-  `%LOCALAPPDATA%\Programs\Python\Python313\python.exe`
-- OBS Studio with its existing authenticated WebSocket enabled
-- Existing AutoHotkey F1/F2 helper for stream controls
-- Official Social Stream Ninja extension for live chat collection
+- Windows 10 or 11
+- Python 3.11 or 3.13
+- OBS Studio with OBS WebSocket enabled on loopback
+- Aitum Stream Suite when vertical canvas status is required
+- Official [Social Stream Ninja](https://socialstream.ninja/) extension for TikTok collection
+- Spotify desktop app for the local media controls
+- The existing F1/F2 AutoHotkey helper if the BRB and Discord buttons are used
 
-Install dependencies once from PowerShell:
+### Install
 
 ```powershell
-Set-Location -LiteralPath 'C:\Projects\StreamerConsole'
+git clone https://github.com/CRSD-Lau/Lausudo-Streamer-Console.git
+Set-Location -LiteralPath '.\Lausudo-Streamer-Console'
 py -3.13 -m pip install -r .\requirements.txt
 ```
 
-## Configure combined chat
-
-Install only the official Social Stream Ninja extension, then set **Send all
-to POST server** to:
+Configure Social Stream Ninja to POST to:
 
 ```text
 http://127.0.0.1:17840/ingest/socialstream
 ```
 
-Twitch chat uses official EventSub after Twitch authorization; the Twitch
-pop-out remains a fallback if that connection is unavailable. While TikTok is live, keep
-`https://www.tiktok.com/@lausudo/live` open with its LIVE chat available.
-In Social Stream Ninja, enable **Show viewer count per source** and **Show
-TikTok likes in main chat/events**. The console diverts those records into its
-counter strip, so they remain absent from the readable chat feed.
-Social Stream browser authentication remains in the browser. The optional
-official Twitch connection stores its refresh/access token encrypted for the
-current Windows user with DPAPI; it stores no cookies, client secret, password,
-or stream key. See
-[`docs/SOCIAL_STREAM_SETUP.md`](docs/SOCIAL_STREAM_SETUP.md) for the complete
-collector setup and TikTok limitations.
-
-## Launch
-
-Double-click `Start-StreamerConsole.ps1`, or run:
+Then launch:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\Projects\StreamerConsole\Start-StreamerConsole.ps1'
+.\Start-StreamerConsole.ps1
 ```
 
-The app defaults to the available portrait display. In normal framed mode it
-uses the native Windows title bar and resize edges, including Windows 11 Snap
-Layouts from the maximize-button hover menu. Optional borderless mode removes
-that native frame, so native edge resizing and Snap Layouts are unavailable
-until normal framed mode is restored. Window placement, size, maximized state,
-font size, spacing, filters, highlight terms, borderless mode, and always-on-
-top mode are remembered locally.
-
-The Frostgate castle is the native window and taskbar icon. A **Streamer
-Console** shortcut is installed in the current user's Start menu and may be
-pinned to the taskbar without changing startup behavior.
-
-Install or repair the Start-menu and existing pinned shortcuts with:
+Install or repair the branded Start-menu/taskbar shortcut with:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\Projects\StreamerConsole\Install-StreamerConsoleShortcut.ps1'
+.\Install-StreamerConsoleShortcut.ps1
 ```
 
-The shortcut and running window use the same Windows application identity, so
-launching the pinned icon groups the open console over that icon instead of
-creating a second Python icon. The native close button is explicitly kept
-enabled in normal framed mode. Restart Streamer Console after an upgrade for
-window-level changes to take effect.
+The scripts resolve the repository directory dynamically; they do not require a
+fixed clone path. See [Installation](docs/INSTALLATION.md),
+[Configuration](docs/CONFIGURATION.md), and
+[Social Stream Ninja setup](docs/SOCIAL_STREAM_SETUP.md) for the complete flow.
 
-For a safe, fully local visual smoke test (no OBS connection, no chat POSTs,
-and F1/F2 controls disabled):
+## Twitch authorization
+
+The optional official Twitch connection uses the Device Code Grant for a public
+desktop client. It needs a Twitch application **Client ID**, but never a client
+secret or OAuth redirect URL. Authorization is completed through the Twitch
+verification page and tokens are encrypted locally with Windows DPAPI.
+
+The connection enables native Twitch chat, complete supported EventSub alerts,
+viewer counts, stream markers, and title/category updates. TikTok collection
+continues independently through Social Stream Ninja.
+
+## Privacy and security
+
+- The Social Stream receiver binds only to `127.0.0.1`, caps request bodies,
+  validates JSON, and never logs request bodies or headers.
+- OBS credentials are read from OBS's local configuration only in memory and are
+  never copied into Streamer Console configuration.
+- Twitch access and refresh tokens are DPAPI-encrypted for the current Windows
+  user under `%LOCALAPPDATA%\NeilMitchell\StreamerConsole`.
+- Logs are bounded and redact credential-shaped fields. Chat text, cookies,
+  passwords, stream keys, tokens, and Social Stream session IDs are not logged.
+- Session files contain aggregate counts and marker metadata, not viewer chat.
+- There is no analytics, crash-reporting service, advertising, or application
+  telemetry.
+- Documentation screenshots are rendered off-screen with simulated messages;
+  no live desktop, viewer chat, OBS password, or account session is captured.
+
+Read [Security policy](SECURITY.md), [Privacy](PRIVACY.md), and the security
+sections of [Architecture](docs/ARCHITECTURE.md) before changing an integration.
+
+## Controls and deployment assumptions
+
+The BRB and Discord buttons deliberately depend on the existing external F1/F2
+automation and do not include that personal controller in this repository. The
+button states remain evidence-based: BRB comes from actual OBS/Aitum state, and
+Discord mute is presented as a toggle because Discord exposes no supported local
+mute-state API in this deployment.
+
+Default OBS source and scene names (`Mic/Aux`, `Spotify`, `BRB - Main`, and
+`BRB - Vertical`) are configurable. The recovery links and visual branding are
+Lausudo-specific by design.
+
+## Development
 
 ```powershell
-py -3.13 -m streamer_console.app --simulate --run-seconds 15
-```
-
-## Controls
-
-- **BRB / Privacy (F1):** sends F1 to the existing global helper. The button
-  never guesses the result; its LIVE/BRB/MIXED state comes from the next actual
-  OBS and Aitum status snapshot.
-- **Discord Mute (F2):** sends F2 to the existing helper, which uses Discord's
-  native Toggle Mute shortcut. Discord does not expose a supported local mute
-  state in this setup, so the button remains an honest toggle without claiming
-  a detected mute state.
-- **INFO:** opens the Twitch Stream Info editor. After one-time official Twitch
-  authorization it reads and updates the current title and category. That same
-  connection supplies reliable Twitch follows and other EventSub alerts.
-- **HEALTH:** shows native Twitch, loopback-listener, and last-data evidence,
-  with direct recovery links for both collector pages.
-- **ALERTS:** shows the newest 50 meaningful alerts without platform noise.
-- **SESSION:** shows aggregate chat, alert, audience-peak, follow and like totals.
-- **MARK:** records the moment locally and creates a Twitch stream marker when live.
-- **Spotify:** controls only Spotify's local Windows media session. OBS,
-  Voicemeeter, stream volume and Windows audio devices remain unchanged.
-
-## Connect Twitch Stream Info and alerts
-
-1. Open **INFO** in Streamer Console and choose **GET CLIENT ID**.
-2. Register a public Twitch application in the Twitch developer console and
-   copy its Client ID. A client secret is not used or requested.
-3. Paste the Client ID and choose **CONNECT TWITCH**.
-4. Approve the displayed device code in the browser.
-
-The requested permissions are limited to native chat reading, channel title/category management and
-read-only follow, subscription, Bits, and channel-reward alerts. Authorization
-can be revoked at any time in Twitch Connections. Until this one-time approval
-is complete, Social Stream chat and TikTok alerts continue to work, but reliable
-Twitch follow alerts and Stream Info editing remain unavailable.
-
-## Local data and logging
-
-Runtime configuration and bounded rotating logs live under:
-
-```text
-%LOCALAPPDATA%\NeilMitchell\StreamerConsole\
-```
-
-The checked-in [`config.example.json`](config.example.json) contains no
-secrets. The application reads the existing OBS WebSocket password only in
-memory from OBS's own local configuration and never copies or logs it. Logs do
-not contain chat bodies or credentials. Twitch tokens are stored separately as
-DPAPI-encrypted `%LOCALAPPDATA%\NeilMitchell\StreamerConsole\twitch-auth.dat`.
-Aggregate-only session JSON files are stored in the adjacent `sessions`
-directory. Existing Twitch authorization must be approved once more after this
-upgrade so Twitch can grant `user:read:chat`.
-
-Windows startup is **not enabled**. If startup is added later, the local
-`start_with_windows` setting remains the place to record that choice.
-
-## Development and tests
-
-```powershell
-Set-Location -LiteralPath 'C:\Projects\StreamerConsole'
 py -3.13 -m unittest discover -s tests -v
+py -3.13 .\tools\render_previews.py
 ```
 
-The test suite uses an off-screen Qt platform and fakes control/network
-boundaries; it does not send global keys or production chat messages.
+Tests use Qt's off-screen platform and mocked network/input boundaries. They do
+not send global hotkeys, post production chat, or control OBS. See
+[Development](docs/DEVELOPMENT.md) and [Contributing](CONTRIBUTING.md).
 
-## More documentation
+## Documentation
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- [`docs/SOCIAL_STREAM_SETUP.md`](docs/SOCIAL_STREAM_SETUP.md)
-- [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md)
-- [`docs/UNINSTALL.md`](docs/UNINSTALL.md)
+- [Installation](docs/INSTALLATION.md)
+- [Configuration reference](docs/CONFIGURATION.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Social Stream Ninja setup](docs/SOCIAL_STREAM_SETUP.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Development](docs/DEVELOPMENT.md)
+- [Architecture decision: native Qt and local integrations](docs/adr/0001-native-qt-and-local-integrations.md)
+- [Privacy](PRIVACY.md)
+- [Security policy](SECURITY.md)
+- [Support](SUPPORT.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Changelog](CHANGELOG.md)
+- [Third-party notices](THIRD_PARTY_NOTICES.md)
+- [Uninstall](docs/UNINSTALL.md)
 
-## Clean removal
+## Project status and legal notice
 
-Close the console, remove `C:\Projects\StreamerConsole`, and optionally remove
-`%LOCALAPPDATA%\NeilMitchell\StreamerConsole`. This does not remove or modify
-OBS scenes, Aitum, stream credentials, TikTok LIVE Studio, Voicemeeter,
-Discord, recordings, or the existing F1/F2 helper.
+Version 1.0.0 reflects the current Lausudo production workflow. TikTok data is
+best effort because it depends on the browser LIVE page and Social Stream Ninja;
+platform changes, login gates, CAPTCHA, and throttling can affect collection.
+
+No license is granted by this repository. The source is publicly visible for
+transparency and collaboration, but all rights are reserved unless the owner
+provides written permission. Third-party dependencies retain their own licenses.
+
+Twitch, TikTok, Discord, Spotify, OBS, Aitum, Social Stream Ninja, Windows, and
+World of Warcraft are trademarks or projects of their respective owners. This
+project is independent and is not endorsed by them.
