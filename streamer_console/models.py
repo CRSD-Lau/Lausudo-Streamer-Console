@@ -97,7 +97,7 @@ class FilterSettings:
 @dataclass(frozen=True, slots=True)
 class ChatPreferences:
     font_size: int = 29
-    message_spacing: int = 16
+    message_spacing: int = 8
     show_timestamps: bool = False
     max_messages: int = 750
     highlight_terms: tuple[str, ...] = ("Lausudo", "@Lausudo")
@@ -158,7 +158,7 @@ class ChatPreferences:
             terms = tuple(str(part).strip() for part in terms if str(part).strip())
         return cls(
             font_size=max(18, min(48, int(values.get("font_size", defaults.font_size)))),
-            message_spacing=max(4, min(36, int(values.get("message_spacing", defaults.message_spacing)))),
+            message_spacing=max(0, min(36, int(values.get("message_spacing", defaults.message_spacing)))),
             show_timestamps=_coerce_bool(values.get("show_timestamps", defaults.show_timestamps)),
             max_messages=max(100, min(5000, int(values.get("max_messages", defaults.max_messages)))),
             highlight_terms=terms or defaults.highlight_terms,

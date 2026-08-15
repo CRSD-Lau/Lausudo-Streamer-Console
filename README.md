@@ -11,9 +11,9 @@ Voicemeeter, Discord, or the existing privacy controller.
 ## Architecture
 
 ```text
-Twitch chat ─┐
-             ├─ Social Stream Ninja ─ POST 127.0.0.1:17840 ─ unified Qt feed
-TikTok chat ─┘
+Twitch EventSub ─ native chat + official alerts ─┐
+                                                 ├─ unified Qt feed
+TikTok chat ─ Social Stream Ninja ─ loopback POST┘
 
 Twitch EventSub ─ follows/subs/resubs/gifts/raids/Bits/rewards ─────┘
 
@@ -22,6 +22,8 @@ Stream Info control ─ official Twitch Helix API ─ title + category
 Audience pulse ─ TikTok viewer/follow/like telemetry + Twitch Get Streams
 
 OBS WebSocket + Aitum vendor API ─ read-only status ────────────────┘
+
+Windows media session ─ Spotify metadata + previous/play/next (audio routing unchanged)
 
 BRB button ─ F1 ─ existing AutoHotkey/privacy controller
 Discord button ─ F2 ─ existing AutoHotkey/Discord native Toggle Mute
@@ -77,7 +79,8 @@ to POST server** to:
 http://127.0.0.1:17840/ingest/socialstream
 ```
 
-Keep Twitch chat/pop-out chat open. While TikTok is live, keep
+Twitch chat uses official EventSub after Twitch authorization; the Twitch
+pop-out remains a fallback if that connection is unavailable. While TikTok is live, keep
 `https://www.tiktok.com/@lausudo/live` open with its LIVE chat available.
 In Social Stream Ninja, enable **Show viewer count per source** and **Show
 TikTok likes in main chat/events**. The console diverts those records into its
@@ -128,6 +131,13 @@ py -3.13 -m streamer_console.app --simulate --run-seconds 15
 - **INFO:** opens the Twitch Stream Info editor. After one-time official Twitch
   authorization it reads and updates the current title and category. That same
   connection supplies reliable Twitch follows and other EventSub alerts.
+- **HEALTH:** shows native Twitch, loopback-listener, and last-data evidence,
+  with direct recovery links for both collector pages.
+- **ALERTS:** shows the newest 50 meaningful alerts without platform noise.
+- **SESSION:** shows aggregate chat, alert, audience-peak, follow and like totals.
+- **MARK:** records the moment locally and creates a Twitch stream marker when live.
+- **Spotify:** controls only Spotify's local Windows media session. OBS,
+  Voicemeeter, stream volume and Windows audio devices remain unchanged.
 
 ## Connect Twitch Stream Info and alerts
 
@@ -137,7 +147,7 @@ py -3.13 -m streamer_console.app --simulate --run-seconds 15
 3. Paste the Client ID and choose **CONNECT TWITCH**.
 4. Approve the displayed device code in the browser.
 
-The requested permissions are limited to channel title/category management and
+The requested permissions are limited to native chat reading, channel title/category management and
 read-only follow, subscription, Bits, and channel-reward alerts. Authorization
 can be revoked at any time in Twitch Connections. Until this one-time approval
 is complete, Social Stream chat and TikTok alerts continue to work, but reliable
@@ -156,6 +166,9 @@ secrets. The application reads the existing OBS WebSocket password only in
 memory from OBS's own local configuration and never copies or logs it. Logs do
 not contain chat bodies or credentials. Twitch tokens are stored separately as
 DPAPI-encrypted `%LOCALAPPDATA%\NeilMitchell\StreamerConsole\twitch-auth.dat`.
+Aggregate-only session JSON files are stored in the adjacent `sessions`
+directory. Existing Twitch authorization must be approved once more after this
+upgrade so Twitch can grant `user:read:chat`.
 
 Windows startup is **not enabled**. If startup is added later, the local
 `start_with_windows` setting remains the place to record that choice.

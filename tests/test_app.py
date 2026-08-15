@@ -20,6 +20,8 @@ from streamer_console.models import ChatPreferences, FilterSettings
 from streamer_console.normalizer import NormalizedMessage
 from streamer_console.obs_client import ObsStatus
 from streamer_console.ui import MainWindow, ensure_application_theme
+from streamer_console.session import SessionTracker
+from streamer_console.twitch import TwitchUpdate
 
 
 class FakeIngest:
@@ -45,6 +47,39 @@ class FakeIngest:
 
     def stop(self):
         self.stopped += 1
+
+    def health_snapshot(self):
+        return {"listener_running": bool(self.started and not self.stopped), "platforms": {"twitch": {}, "tiktok": {}}}
+
+
+class FakeTwitch:
+    def __init__(self) -> None:
+        self.updates = []
+        self.started = self.stopped = 0
+        self.markers = []
+
+    def start(self): self.started += 1
+    def stop(self): self.stopped += 1
+    def drain(self, max_items=100):
+        batch = self.updates[:max_items]; del self.updates[:max_items]; return batch
+    def connect(self, client_id): pass
+    def refresh_info(self): pass
+    def search_categories(self, query): pass
+    def update_info(self, title, category): pass
+    def create_marker(self, description): self.markers.append(description)
+
+
+class FakeSpotify:
+    def __init__(self) -> None:
+        self.updates = []
+        self.started = self.stopped = 0
+    def start(self): self.started += 1
+    def stop(self): self.stopped += 1
+    def drain(self, max_items=16):
+        batch = self.updates[:max_items]; del self.updates[:max_items]; return batch
+    def previous(self): pass
+    def play_pause(self): pass
+    def next(self): pass
 
 
 class FakeObsMonitor:
@@ -118,6 +153,8 @@ class StreamerConsoleRuntimeTests(unittest.TestCase):
         self.obs = FakeObsMonitor()
         self.controls = FakeControls()
         self.window = MainWindow(persist_settings=False, restore_geometry=False)
+        self.twitch = FakeTwitch()
+        self.spotify = FakeSpotify()
         self.runtime = StreamerConsoleRuntime(
             self.application,
             config=AppConfig(),
@@ -126,6 +163,9 @@ class StreamerConsoleRuntimeTests(unittest.TestCase):
             ingest_server=self.ingest,
             obs_monitor=self.obs,
             control_bridge=self.controls,
+            twitch_service=self.twitch,
+            spotify_service=self.spotify,
+            session_tracker=SessionTracker(Path(self.temp.name) / "sessions"),
         )
 
     def tearDown(self) -> None:
@@ -169,6 +209,26 @@ class StreamerConsoleRuntimeTests(unittest.TestCase):
             [item.source_id for item in self.window.model.messages],
             ["eventsub:official"],
         )
+
+    def test_native_twitch_chat_suppresses_browser_copy_and_falls_back_on_disconnect(self) -> None:
+        self.runtime._native_twitch_chat_ready = True
+        self.ingest.messages.extend(
+            [
+                message(1, "TWITCH", "browser copy"),
+                NormalizedMessage(2, "2026-08-15T00:00:00Z", "TWITCH", "Viewer", "native", source_id="eventsub:native"),
+            ]
+        )
+        self.runtime._drain_messages()
+        self.assertEqual([item.text for item in self.window.model.messages], ["native"])
+
+        self.twitch.updates.append(TwitchUpdate("eventsub_status", {"connected": False, "state": "reconnecting"}))
+        self.runtime._drain_twitch()
+        self.assertFalse(self.runtime._native_twitch_chat_ready)
+
+    def test_marker_is_recorded_locally_and_sent_to_same_twitch_service(self) -> None:
+        self.runtime._on_marker_requested("Sindragosa kill")
+        self.assertEqual(self.twitch.markers, ["Sindragosa kill"])
+        self.assertEqual(self.runtime.session_tracker.snapshot()["markers"][0]["description"], "Sindragosa kill")
 
     def test_tiktok_telemetry_updates_running_counts_without_chat_rows(self) -> None:
         from streamer_console.telemetry import TelemetryUpdate

@@ -55,7 +55,9 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListView,
+    QListWidget,
     QMainWindow,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -253,14 +255,14 @@ class ChatItemDelegate(QStyledItemDelegate):
     def sizeHint(self, option: QStyleOptionViewItem, index: QModelIndex) -> QSize:  # noqa: N802
         message = index.data(int(MessageRoles.MessageRole))
         if not isinstance(message, ChatMessage):
-            return QSize(max(320, option.rect.width()), 96)
+            return QSize(max(320, option.rect.width()), 72)
         width = max(300, option.rect.width() - 56)
         key = (message.text, width, self.preferences.font_size, self.preferences.message_spacing)
         cached_height = self._height_cache.get(key)
         if cached_height is None:
             body_height = self._document(message.text, width).size().height()
-            height = int(34 + body_height + self.preferences.message_spacing + 17)
-            cached_height = max(96, height)
+            height = int(45 + body_height + self.preferences.message_spacing)
+            cached_height = max(72, height)
             if len(self._height_cache) >= 2200:
                 self._height_cache.clear()
             self._height_cache[key] = cached_height
@@ -273,7 +275,7 @@ class ChatItemDelegate(QStyledItemDelegate):
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        rect = option.rect.adjusted(2, 2, -10, -2)
+        rect = option.rect.adjusted(2, 1, -10, -1)
         selected = bool(option.state & QStyle.StateFlag.State_Selected)
         if message.highlight:
             painter.fillRect(rect, QColor("#143039"))
@@ -301,7 +303,7 @@ class ChatItemDelegate(QStyledItemDelegate):
         painter.setPen(platform_color)
         event_suffix = f"  •  {message.event_type.upper()}" if message.event_type else ""
         platform_text = message.platform.value.upper() + event_suffix
-        painter.drawText(QRectF(x, rect.top() + 7, usable_width, 21), platform_text)
+        painter.drawText(QRectF(x, rect.top() + 4, usable_width, 18), platform_text)
 
         username_font = QFont(DISPLAY_FONT)
         username_font.setPixelSize(max(17, self.preferences.font_size - 9))
@@ -309,7 +311,7 @@ class ChatItemDelegate(QStyledItemDelegate):
         painter.setFont(username_font)
         painter.setPen(QColor(COLORS.mist))
         username_width = usable_width - (64 if self.preferences.show_timestamps else 0)
-        painter.drawText(QRectF(x, rect.top() + 28, username_width, 28), message.username)
+        painter.drawText(QRectF(x, rect.top() + 21, username_width, 25), message.username)
 
         if self.preferences.show_timestamps:
             timestamp_font = QFont(BODY_FONT)
@@ -317,14 +319,14 @@ class ChatItemDelegate(QStyledItemDelegate):
             painter.setFont(timestamp_font)
             painter.setPen(QColor(COLORS.muted))
             painter.drawText(
-                QRectF(rect.right() - 58, rect.top() + 9, 54, 20),
+                QRectF(rect.right() - 58, rect.top() + 5, 54, 18),
                 Qt.AlignmentFlag.AlignRight,
                 message.timestamp_text,
             )
 
         document = self._document(message.text, usable_width)
-        painter.translate(QPointF(x, rect.top() + 59))
-        document.drawContents(painter, QRectF(0, 0, usable_width, rect.height() - 60))
+        painter.translate(QPointF(x, rect.top() + 46))
+        document.drawContents(painter, QRectF(0, 0, usable_width, rect.height() - 47))
         painter.restore()
 
     def _document(self, text: str, width: int) -> QTextDocument:
@@ -375,10 +377,15 @@ class ChatListView(QListView):
     @Slot(int)
     def notify_new_messages(self, count: int = 1) -> None:
         if self._auto_scroll:
-            QTimer.singleShot(0, self.scrollToBottom)
+            QTimer.singleShot(0, self._follow_live_bottom)
         else:
             self._unread_count += max(0, count)
             self.unread_count_changed.emit(self._unread_count)
+
+    def _follow_live_bottom(self) -> None:
+        self.doItemsLayout()
+        self.scrollToBottom()
+        QTimer.singleShot(0, self.scrollToBottom)
 
     @Slot()
     def pause_auto_scroll(self) -> None:
@@ -452,7 +459,7 @@ class ReaderSettingsDialog(QDialog):
         self.font_size.setSuffix(" px")
         self.font_size.setValue(preferences.font_size)
         self.message_spacing = QSpinBox()
-        self.message_spacing.setRange(4, 36)
+        self.message_spacing.setRange(0, 36)
         self.message_spacing.setSuffix(" px")
         self.message_spacing.setValue(preferences.message_spacing)
         self.max_messages = QSpinBox()
@@ -666,6 +673,130 @@ class TwitchStreamInfoDialog(QDialog):
             repolish(self.status)
 
 
+class SpotifyPanel(QFrame):
+    """A deliberately small local playback remote."""
+
+    previous_requested = Signal()
+    play_pause_requested = Signal()
+    next_requested = Signal()
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("spotifyPanel")
+        self.setFixedHeight(64)
+        self.setMaximumWidth(480)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(13, 8, 13, 8)
+        row.setSpacing(11)
+        mark = QLabel("♫")
+        mark.setObjectName("spotifyMark")
+        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mark.setFixedSize(42, 42)
+        copy = QVBoxLayout()
+        copy.setSpacing(1)
+        self.kicker = QLabel("SPOTIFY · LOCAL")
+        self.kicker.setObjectName("spotifyKicker")
+        self.title = QLabel("Waiting for Spotify")
+        self.title.setObjectName("spotifyTitle")
+        self.artist = QLabel("Open the Spotify app to begin")
+        self.artist.setObjectName("spotifyArtist")
+        for label in (self.title, self.artist):
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        copy.addWidget(self.kicker)
+        copy.addWidget(self.title)
+        copy.addWidget(self.artist)
+        self.progress = QProgressBar()
+        self.progress.setObjectName("spotifyProgress")
+        self.progress.setRange(0, 1000)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(3)
+        copy.addWidget(self.progress)
+        row.addWidget(mark)
+        row.addLayout(copy, 1)
+        self.previous = QToolButton()
+        self.previous.setText("◀◀")
+        self.toggle = QToolButton()
+        self.toggle.setText("▶")
+        self.next_track = QToolButton()
+        self.next_track.setText("▶▶")
+        for button, name in (
+            (self.previous, "Previous Spotify track"),
+            (self.toggle, "Play or pause Spotify"),
+            (self.next_track, "Next Spotify track"),
+        ):
+            button.setObjectName("spotifyControl")
+            button.setAccessibleName(name)
+            button.setToolTip(name)
+            button.setEnabled(False)
+            row.addWidget(button)
+        self.previous.clicked.connect(self.previous_requested)
+        self.toggle.clicked.connect(self.play_pause_requested)
+        self.next_track.clicked.connect(self.next_requested)
+
+    def apply_status(self, payload: Mapping[str, Any]) -> None:
+        available = bool(payload.get("available", False))
+        title = str(payload.get("title", "") or "")
+        artist = str(payload.get("artist", "") or "")
+        playing = bool(payload.get("playing", False))
+        self.title.setText(title or ("Waiting for Spotify" if not available else "Nothing playing"))
+        self.artist.setText(artist or ("Open the Spotify app to begin" if not available else "Spotify is ready"))
+        self.toggle.setText("Ⅱ" if playing else "▶")
+        for button in (self.previous, self.toggle, self.next_track):
+            button.setEnabled(available)
+        try:
+            position = max(0, int(payload.get("position_ms", 0) or 0))
+            duration = max(0, int(payload.get("duration_ms", 0) or 0))
+        except (TypeError, ValueError):
+            position = duration = 0
+        self.progress.setValue(int(min(1.0, position / duration) * 1000) if duration else 0)
+
+
+class ConsoleListDialog(QDialog):
+    def __init__(self, title: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("consoleListDialog")
+        self.setWindowTitle(title.title())
+        self.resize(620, 620)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(22, 20, 22, 20)
+        self.heading = QLabel(title.upper())
+        self.heading.setObjectName("sectionTitle")
+        self.detail = QLabel("")
+        self.detail.setWordWrap(True)
+        self.detail.setObjectName("dialogDetail")
+        self.items = QListWidget()
+        self.items.setObjectName("consoleDataList")
+        close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        close.rejected.connect(self.reject)
+        root.addWidget(self.heading)
+        root.addWidget(self.detail)
+        root.addWidget(self.items, 1)
+        root.addWidget(close)
+
+    def set_rows(self, rows: Iterable[str], detail: str = "") -> None:
+        self.detail.setText(detail)
+        self.items.clear()
+        self.items.addItems([str(row) for row in rows])
+
+
+class CollectorHealthDialog(ConsoleListDialog):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__("Collector Health", parent)
+        actions = QHBoxLayout()
+        twitch = QPushButton("OPEN TWITCH CHAT")
+        tiktok = QPushButton("OPEN TIKTOK LIVE")
+        twitch.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://www.twitch.tv/popout/lausudo/chat?popout="))
+        )
+        tiktok.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://www.tiktok.com/@lausudo/live"))
+        )
+        actions.addWidget(twitch)
+        actions.addWidget(tiktok)
+        self.layout().insertLayout(self.layout().count() - 1, actions)
+
+
 class MainWindow(QMainWindow):
     """Portrait-first console with thread-safe integration entry points."""
 
@@ -680,6 +811,10 @@ class MainWindow(QMainWindow):
     twitch_refresh_requested = Signal()
     twitch_update_requested = Signal(str, str)
     twitch_category_search_requested = Signal(str)
+    marker_requested = Signal(str)
+    spotify_previous_requested = Signal()
+    spotify_play_pause_requested = Signal()
+    spotify_next_requested = Signal()
 
     incoming_message = Signal(object)
     incoming_messages = Signal(object)
@@ -689,6 +824,9 @@ class MainWindow(QMainWindow):
     incoming_discord_state = Signal(object)
     incoming_twitch_update = Signal(object)
     incoming_live_metrics = Signal(object)
+    incoming_spotify_status = Signal(object)
+    incoming_collector_health = Signal(object)
+    incoming_session_summary = Signal(object)
 
     def __init__(
         self,
@@ -724,6 +862,12 @@ class MainWindow(QMainWindow):
         self._twitch_dialog: TwitchStreamInfoDialog | None = None
         self._twitch_client_id = ""
         self._twitch_updates: dict[str, Any] = {}
+        self._collector_health: dict[str, Any] = {}
+        self._session_summary: dict[str, Any] = {}
+        self._recent_alerts: list[ChatMessage] = []
+        self._health_dialog: CollectorHealthDialog | None = None
+        self._alerts_dialog: ConsoleListDialog | None = None
+        self._session_dialog: ConsoleListDialog | None = None
         self._live_metrics: dict[str, int | None] = {
             "tiktok_viewers": None,
             "tiktok_follows": 0,
@@ -817,9 +961,10 @@ class MainWindow(QMainWindow):
         self.live_tally_dot.setAccessibleName("OBS standby")
         tally_layout.addWidget(self.live_tally_dot)
         tally_layout.addWidget(self.live_tally)
+        self.spotify_panel = SpotifyPanel()
         header_layout.addWidget(logo)
         header_layout.addLayout(brand_stack)
-        header_layout.addStretch(1)
+        header_layout.addWidget(self.spotify_panel, 1)
         header_layout.addWidget(self.live_tally_box)
         layout.addWidget(header)
 
@@ -884,7 +1029,15 @@ class MainWindow(QMainWindow):
         self.settings_button = self._reader_tool("⚙", "Reader, filter and window settings")
         self.stream_info_button = self._reader_tool("INFO", "Update Twitch stream title and category")
         self.stream_info_button.setMinimumWidth(56)
+        self.health_button = self._reader_tool("HLT", "Collector health and recovery")
+        self.alerts_button = self._reader_tool("ALR", "Recent meaningful alerts")
+        self.session_button = self._reader_tool("SES", "Current stream session summary")
+        self.marker_button = self._reader_tool("MARK", "Mark this moment locally and on Twitch")
         chat_header_layout.addWidget(self.stream_info_button)
+        chat_header_layout.addWidget(self.health_button)
+        chat_header_layout.addWidget(self.alerts_button)
+        chat_header_layout.addWidget(self.session_button)
+        chat_header_layout.addWidget(self.marker_button)
         chat_header_layout.addWidget(self.font_down)
         chat_header_layout.addWidget(self.font_up)
         chat_header_layout.addWidget(self.settings_button)
@@ -918,11 +1071,13 @@ class MainWindow(QMainWindow):
         self.stream_metric = Metric("TWITCH")
         self.record_metric = Metric("REC")
         self.vertical_metric = Metric("TIKTOK OUT")
+        self.privacy_metric = Metric("PRIVACY")
         self._status_metrics = (
             self.obs_metric,
             self.stream_metric,
             self.record_metric,
             self.vertical_metric,
+            self.privacy_metric,
         )
         for column, metric in enumerate(self._status_metrics):
             self.metric_layout.addWidget(metric, 0, column)
@@ -974,6 +1129,13 @@ class MainWindow(QMainWindow):
         self.font_up.clicked.connect(lambda: self._bump_font(2))
         self.settings_button.clicked.connect(self.open_settings)
         self.stream_info_button.clicked.connect(self.open_twitch_stream_info)
+        self.health_button.clicked.connect(self.open_collector_health)
+        self.alerts_button.clicked.connect(self.open_recent_alerts)
+        self.session_button.clicked.connect(self.open_session_summary)
+        self.marker_button.clicked.connect(lambda: self.marker_requested.emit("Raid moment"))
+        self.spotify_panel.previous_requested.connect(self.spotify_previous_requested)
+        self.spotify_panel.play_pause_requested.connect(self.spotify_play_pause_requested)
+        self.spotify_panel.next_requested.connect(self.spotify_next_requested)
         self.brb_button.clicked.connect(self.brb_requested)
         self.discord_button.clicked.connect(self.discord_toggle_requested)
         self.incoming_message.connect(self._append_message)
@@ -984,6 +1146,9 @@ class MainWindow(QMainWindow):
         self.incoming_discord_state.connect(self._set_discord_state)
         self.incoming_twitch_update.connect(self._update_twitch)
         self.incoming_live_metrics.connect(self._update_live_metrics)
+        self.incoming_spotify_status.connect(self._update_spotify_status)
+        self.incoming_collector_health.connect(self._update_collector_health)
+        self.incoming_session_summary.connect(self._update_session_summary)
 
     def _reader_tool(self, text: str, tooltip: str) -> QToolButton:
         button = QToolButton()
@@ -1018,7 +1183,7 @@ class MainWindow(QMainWindow):
         for metric in self._status_metrics:
             self.metric_layout.removeWidget(metric)
             metric.set_compact(compact)
-        for column in range(4):
+        for column in range(5):
             self.metric_layout.setColumnStretch(column, 0)
         if compact:
             for index, metric in enumerate(self._status_metrics):
@@ -1026,7 +1191,7 @@ class MainWindow(QMainWindow):
                 self.metric_layout.addWidget(metric, row, column)
             self.metric_layout.setColumnStretch(0, 1)
             self.metric_layout.setColumnStretch(1, 1)
-            self.status_strip.setFixedHeight(128 if short else 135)
+            self.status_strip.setFixedHeight(142 if short else 155)
             control_style = (
                 "font-size: 15px; min-height: 74px; padding: 5px 10px;"
                 if short
@@ -1042,6 +1207,13 @@ class MainWindow(QMainWindow):
             control_style = ""
             self.stream_info_button.setText("STREAM INFO")
             self.stream_info_button.setMinimumWidth(92)
+
+        self.font_down.setVisible(not compact)
+        self.font_up.setVisible(not compact)
+        self.spotify_panel.setVisible(not compact)
+        self.health_button.setText("H" if compact else "HEALTH")
+        self.alerts_button.setText("A" if compact else "ALERTS")
+        self.session_button.setText("S" if compact else "SESSION")
 
         self.brb_button.setStyleSheet(control_style)
         self.discord_button.setStyleSheet(control_style)
@@ -1076,6 +1248,94 @@ class MainWindow(QMainWindow):
 
     def update_live_metrics(self, metrics: Mapping[str, Any] | Any) -> None:
         self.incoming_live_metrics.emit(metrics)
+
+    def update_spotify_status(self, status: Mapping[str, Any] | Any) -> None:
+        self.incoming_spotify_status.emit(status)
+
+    def update_collector_health(self, health: Mapping[str, Any] | Any) -> None:
+        self.incoming_collector_health.emit(health)
+
+    def update_session_summary(self, summary: Mapping[str, Any] | Any) -> None:
+        self.incoming_session_summary.emit(summary)
+
+    @Slot(object)
+    def _update_spotify_status(self, status: Mapping[str, Any] | Any) -> None:
+        self.spotify_panel.apply_status(status if isinstance(status, Mapping) else {})
+
+    @Slot(object)
+    def _update_collector_health(self, health: Mapping[str, Any] | Any) -> None:
+        self._collector_health = dict(health) if isinstance(health, Mapping) else {}
+        listener = bool(self._collector_health.get("listener_running", False))
+        native = bool(self._collector_health.get("twitch_native", False))
+        self.health_button.setProperty("state", "ready" if listener and native else "warning")
+        repolish(self.health_button)
+        if self._health_dialog and self._health_dialog.isVisible():
+            self._populate_health_dialog()
+
+    @Slot(object)
+    def _update_session_summary(self, summary: Mapping[str, Any] | Any) -> None:
+        self._session_summary = dict(summary) if isinstance(summary, Mapping) else {}
+        if self._session_dialog and self._session_dialog.isVisible():
+            self._populate_session_dialog()
+
+    @Slot()
+    def open_collector_health(self) -> None:
+        if self._health_dialog is None:
+            self._health_dialog = CollectorHealthDialog(self)
+        self._populate_health_dialog()
+        self._health_dialog.show()
+        self._health_dialog.raise_()
+
+    def _populate_health_dialog(self) -> None:
+        if self._health_dialog is None:
+            return
+        platforms = self._collector_health.get("platforms", {})
+        rows = []
+        for key in ("twitch", "tiktok"):
+            item = platforms.get(key, {}) if isinstance(platforms, Mapping) else {}
+            age = item.get("seconds_since_data") if isinstance(item, Mapping) else None
+            age_text = "NO DATA YET" if age is None else f"LAST DATA {int(age)}s AGO"
+            rows.append(f"{key.upper()}  ·  {age_text}  ·  {item.get('received', 0)} RECORDS")
+        rows.insert(0, "TWITCH NATIVE CHAT  ·  " + ("READY" if self._collector_health.get("twitch_native") else "FALLBACK"))
+        rows.insert(1, "LOOPBACK LISTENER  ·  " + ("READY" if self._collector_health.get("listener_running") else "OFFLINE"))
+        self._health_dialog.set_rows(rows, "Twitch uses native EventSub when ready. TikTok uses the open LIVE page through Social Stream Ninja.")
+
+    @Slot()
+    def open_recent_alerts(self) -> None:
+        if self._alerts_dialog is None:
+            self._alerts_dialog = ConsoleListDialog("Recent Alerts", self)
+        rows = [
+            f"{item.timestamp_text}  {item.platform.value.upper()} · {item.event_type.upper()} · {item.username}  {item.text}".strip()
+            for item in reversed(self._recent_alerts)
+        ]
+        self._alerts_dialog.set_rows(rows or ["No meaningful alerts this session."], "Newest first. Chat and low-value platform notices are excluded.")
+        self._alerts_dialog.show()
+        self._alerts_dialog.raise_()
+
+    @Slot()
+    def open_session_summary(self) -> None:
+        if self._session_dialog is None:
+            self._session_dialog = ConsoleListDialog("Session Summary", self)
+        self._populate_session_dialog()
+        self._session_dialog.show()
+        self._session_dialog.raise_()
+
+    def _populate_session_dialog(self) -> None:
+        if self._session_dialog is None:
+            return
+        value = self._session_summary
+        duration = int(value.get("duration_seconds", 0) or 0)
+        alerts = value.get("alerts", {})
+        alert_text = ", ".join(f"{key} {count}" for key, count in sorted(alerts.items())) if isinstance(alerts, Mapping) else ""
+        rows = [
+            f"DURATION  ·  {duration // 3600:02d}:{(duration // 60) % 60:02d}:{duration % 60:02d}",
+            f"CHAT  ·  TWITCH {value.get('twitch_messages', 0)}  ·  TIKTOK {value.get('tiktok_messages', 0)}",
+            f"PEAK VIEWERS  ·  TWITCH {value.get('peak_twitch_viewers', 0)}  ·  TIKTOK {value.get('peak_tiktok_viewers', 0)}",
+            f"TIKTOK  ·  {value.get('tiktok_follows', 0)} FOLLOWS  ·  {value.get('tiktok_likes', 0)} LIKES",
+            "ALERTS  ·  " + (alert_text or "NONE"),
+            f"MARKERS  ·  {len(value.get('markers', ()))}",
+        ]
+        self._session_dialog.set_rows(rows, "Aggregate-only local totals; viewer chat text is not written to session files.")
 
     @Slot(object)
     def _update_live_metrics(self, metrics: Mapping[str, Any] | Any) -> None:
@@ -1119,11 +1379,25 @@ class MainWindow(QMainWindow):
 
     @Slot(object)
     def _append_message(self, message: Any) -> None:
-        self.model.append_message(message)
+        coerced = ChatMessage.coerce(message)
+        if coerced.kind is MessageKind.EVENT:
+            self._recent_alerts.append(coerced)
+            self._recent_alerts = self._recent_alerts[-50:]
+            self.alerts_button.setText("A" if self._compact_layout else f"ALERTS {len(self._recent_alerts)}")
+        self.model.append_message(coerced)
 
     @Slot(object)
     def _append_messages(self, messages: Iterable[Any]) -> None:
-        self.model.append_messages(messages)
+        values = [ChatMessage.coerce(message) for message in messages]
+        for message in values:
+            if message.kind is MessageKind.EVENT:
+                self._recent_alerts.append(message)
+        self._recent_alerts = self._recent_alerts[-50:]
+        if self._recent_alerts:
+            self.alerts_button.setText(
+                "A" if self._compact_layout else f"ALERTS {len(self._recent_alerts)}"
+            )
+        self.model.append_messages(values)
 
     @Slot(object, object, str)
     def _update_connection(self, platform: Any, state: Any, detail: str = "") -> None:
@@ -1163,6 +1437,10 @@ class MainWindow(QMainWindow):
         self._set_boolean_metric(self.stream_metric, streaming, "LIVE", "OFFLINE")
         self._set_boolean_metric(self.record_metric, recording, "ON", "OFF")
         self._set_boolean_metric(self.vertical_metric, vertical_active, "ON", "OFF")
+        mic_muted = _bool_or_none(_value(status, "mic_muted"))
+        mic_monitor = str(_value(status, "mic_monitor_type", default="") or "").upper()
+        spotify_muted = _bool_or_none(_value(status, "spotify_muted"))
+        spotify_monitor = str(_value(status, "spotify_monitor_type", default="") or "").upper()
         self.main_scene.setText(main_scene)
         self.vertical_scene.setText(vertical_scene)
 
@@ -1192,6 +1470,20 @@ class MainWindow(QMainWindow):
             vertical_is_brb = vertical_scene.casefold() == "brb - vertical"
             derived = "brb" if main_is_brb and vertical_is_brb else "mixed" if main_is_brb != vertical_is_brb else "live"
             self._set_brb_state(derived)
+        brb_active = str(explicit_brb or self._brb_state).casefold() == "brb"
+        if brb_active:
+            verified = (
+                mic_muted is True
+                and mic_monitor.endswith("NONE")
+                and spotify_muted is False
+                and "MONITOR_AND_OUTPUT" in spotify_monitor
+                and vertical_active is True
+            )
+            self.privacy_metric.set_value("VERIFIED" if verified else "CHECK", "on" if verified else "warning")
+        elif connected is True:
+            self.privacy_metric.set_value("ARMED", "connected")
+        else:
+            self.privacy_metric.set_value("UNKNOWN", "warning")
 
     def _set_boolean_metric(
         self,
@@ -1407,7 +1699,7 @@ class MainWindow(QMainWindow):
     def _load_preferences(self) -> ChatPreferences:
         values = {
             "font_size": self._settings.value("reader/font_size", 29, int),
-            "message_spacing": self._settings.value("reader/message_spacing", 16, int),
+            "message_spacing": self._settings.value("reader/message_spacing", 8, int),
             "show_timestamps": self._settings.value("reader/show_timestamps", False, bool),
             "max_messages": self._settings.value("reader/max_messages", 750, int),
             "highlight_terms": self._settings.value(

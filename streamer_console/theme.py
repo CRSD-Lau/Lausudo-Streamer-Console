@@ -182,6 +182,32 @@ QToolButton#readerTool {{
     font-weight: 650;
 }}
 QToolButton#readerTool:hover {{ border-color: {COLORS.teal}; background: {COLORS.deep_blue}; }}
+QToolButton#readerTool[state="ready"] {{ color: {COLORS.teal}; border-color: {COLORS.teal_dark}; }}
+QToolButton#readerTool[state="warning"] {{ color: {COLORS.amber}; }}
+QFrame#spotifyPanel {{
+    background: {COLORS.panel};
+    border: 1px solid {COLORS.line};
+    border-radius: 9px;
+}}
+QLabel#spotifyMark {{
+    border-radius: 7px;
+    background: {COLORS.deep_blue};
+    color: {COLORS.teal};
+    font-size: 25px;
+}}
+QLabel#spotifyKicker {{ color: {COLORS.teal}; font-family: "{DISPLAY_FONT}"; font-size: 10px; letter-spacing: 1px; }}
+QLabel#spotifyTitle {{ font-family: "{DISPLAY_FONT}"; font-size: 15px; font-weight: 650; }}
+QLabel#spotifyArtist {{ color: {COLORS.muted}; font-size: 12px; }}
+QProgressBar#spotifyProgress {{ border: none; background: {COLORS.line}; }}
+QProgressBar#spotifyProgress::chunk {{ background: {COLORS.teal}; }}
+QToolButton#spotifyControl {{
+    min-width: 42px; min-height: 42px;
+    border: 1px solid {COLORS.line}; border-radius: 21px;
+    background: {COLORS.ink}; color: {COLORS.mist};
+    font-family: "{DISPLAY_FONT}"; font-size: 13px;
+}}
+QToolButton#spotifyControl:hover {{ border-color: {COLORS.teal}; background: {COLORS.deep_blue}; }}
+QToolButton#spotifyControl:disabled {{ color: {COLORS.muted}; }}
 QPushButton#resumeButton {{
     min-height: 43px;
     padding: 0 18px;
@@ -236,7 +262,13 @@ QLabel#keyHint {{
     color: {COLORS.muted};
 }}
 QDialog, QGroupBox {{ background: {COLORS.ink}; }}
-QDialog#readerSettings, QDialog#twitchStreamInfo {{ min-width: 540px; }}
+QDialog#readerSettings, QDialog#twitchStreamInfo, QDialog#consoleListDialog {{ min-width: 540px; }}
+QLabel#dialogDetail {{ color: {COLORS.muted}; }}
+QListWidget#consoleDataList {{
+    background: {COLORS.panel}; border: 1px solid {COLORS.line}; border-radius: 7px;
+    padding: 8px; font-size: 14px;
+}}
+QListWidget#consoleDataList::item {{ min-height: 42px; border-bottom: 1px solid {COLORS.line}; }}
 QLabel#twitchAuthStatus {{
     min-height: 36px;
     padding: 0 10px;

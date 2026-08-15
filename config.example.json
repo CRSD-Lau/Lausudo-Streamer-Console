@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "window": {
     "width": 1080,
     "height": 1920,
@@ -12,7 +12,7 @@
   },
   "chat": {
     "font_size": 28,
-    "message_spacing": 18,
+    "message_spacing": 8,
     "max_messages": 750,
     "show_timestamps": false,
     "highlight_terms": [
@@ -45,6 +45,7 @@
     "reconnect_initial_seconds": 1.0,
     "reconnect_max_seconds": 20.0,
     "mic_input": "Mic/Aux",
+    "spotify_input": "Spotify",
     "brb_main_scene": "BRB - Main",
     "brb_vertical_scene": "BRB - Vertical",
     "aitum_vendor_name": "aitum-stream-suite",

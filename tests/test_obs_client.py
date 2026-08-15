@@ -163,9 +163,15 @@ class FakeStatusSession:
         if request_type == "GetCurrentProgramScene":
             return {"currentProgramSceneName": "BRB - Main"}
         if request_type == "GetInputMute":
-            return {"inputMuted": True}
+            return {"inputMuted": request_data.get("inputName") != "Spotify"}
         if request_type == "GetInputAudioMonitorType":
-            return {"monitorType": "OBS_MONITORING_TYPE_NONE"}
+            return {
+                "monitorType": (
+                    "OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT"
+                    if request_data.get("inputName") == "Spotify"
+                    else "OBS_MONITORING_TYPE_NONE"
+                )
+            }
         if request_type == "CallVendorRequest":
             if not self.aitum_available:
                 raise ObsRequestError("CallVendorRequest", 204, "vendor unavailable")
@@ -195,6 +201,11 @@ class ObsStatusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status.vertical_scene, "BRB - Vertical")
         self.assertTrue(status.mic_muted)
         self.assertEqual(status.mic_monitor_type, "OBS_MONITORING_TYPE_NONE")
+        self.assertFalse(status.spotify_muted)
+        self.assertEqual(
+            status.spotify_monitor_type,
+            "OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT",
+        )
         self.assertEqual(status.brb_state, "brb")
         self.assertEqual(status.vertical_outputs[0]["active"], True)
 

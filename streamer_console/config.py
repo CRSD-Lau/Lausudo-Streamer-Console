@@ -50,7 +50,7 @@ class FilterSettings:
 @dataclass(slots=True)
 class ChatSettings:
     font_size: int = 28
-    message_spacing: int = 18
+    message_spacing: int = 8
     max_messages: int = 750
     show_timestamps: bool = False
     highlight_terms: list[str] = field(
@@ -78,6 +78,7 @@ class ObsSettings:
     reconnect_initial_seconds: float = 1.0
     reconnect_max_seconds: float = 20.0
     mic_input: str = "Mic/Aux"
+    spotify_input: str = "Spotify"
     brb_main_scene: str = "BRB - Main"
     brb_vertical_scene: str = "BRB - Vertical"
     aitum_vendor_name: str = "aitum-stream-suite"
@@ -99,7 +100,7 @@ class LoggingSettings:
 
 @dataclass(slots=True)
 class AppConfig:
-    version: int = 1
+    version: int = 2
     window: WindowSettings = field(default_factory=WindowSettings)
     chat: ChatSettings = field(default_factory=ChatSettings)
     ingest: IngestSettings = field(default_factory=IngestSettings)
@@ -338,6 +339,9 @@ def _clamp_config(config: AppConfig) -> AppConfig:
     config.obs.mic_input = _safe_text(
         config.obs.mic_input, defaults.obs.mic_input, max_length=512
     )
+    config.obs.spotify_input = _safe_text(
+        config.obs.spotify_input, defaults.obs.spotify_input, max_length=512
+    )
     config.obs.brb_main_scene = _safe_text(
         config.obs.brb_main_scene, defaults.obs.brb_main_scene, max_length=512
     )
@@ -421,7 +425,17 @@ def load_config(path: str | Path | None = None) -> AppConfig:
             raw = json.load(handle)
     except (FileNotFoundError, OSError, json.JSONDecodeError, RecursionError):
         return AppConfig()
-    return _clamp_config(_coerce_dataclass(AppConfig, raw))
+    config = _coerce_dataclass(AppConfig, raw)
+    # Version 2 makes the glance-reader materially denser. Preserve custom
+    # values while migrating the original shipped 18 px default.
+    try:
+        source_version = int(raw.get("version", 1)) if isinstance(raw, Mapping) else 1
+    except (TypeError, ValueError):
+        source_version = 1
+    if source_version < 2 and getattr(config.chat, "message_spacing", 18) == 18:
+        config.chat.message_spacing = 8
+    config.version = 2
+    return _clamp_config(config)
 
 
 def save_config(config: AppConfig, path: str | Path | None = None) -> Path:

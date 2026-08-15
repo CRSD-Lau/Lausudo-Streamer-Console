@@ -36,6 +36,20 @@ def post(
 
 
 class IngestServerTests(unittest.TestCase):
+    def test_health_snapshot_reports_listener_and_platform_receipt_evidence(self) -> None:
+        server = SocialStreamIngestServer(settings=IngestSettings(port=0))
+        server.start()
+        try:
+            server.submit(
+                {"type": "tiktok", "chatname": "Neil", "chatmessage": "ready", "id": "health-1"}
+            )
+            health = server.health_snapshot()
+        finally:
+            server.stop()
+        self.assertTrue(health["listener_running"])
+        self.assertEqual(health["platforms"]["tiktok"]["received"], 1)
+        self.assertLess(health["platforms"]["tiktok"]["seconds_since_data"], 1)
+
     def setUp(self) -> None:
         self.server = SocialStreamIngestServer(
             MessageNormalizer(),
@@ -387,14 +401,14 @@ class ConfigStoreTests(unittest.TestCase):
 
             loaded = ConfigStore(path).load()
 
-        self.assertEqual(loaded.version, 1)
+        self.assertEqual(loaded.version, 2)
         self.assertEqual(loaded.window.width, 1080)
         self.assertEqual(loaded.window.height, 7680)
         self.assertIsNone(loaded.window.x)
         self.assertEqual(loaded.window.monitor_name, "Portrait Display")
         self.assertTrue(loaded.window.always_on_top)
         self.assertEqual(loaded.chat.font_size, 28)
-        self.assertEqual(loaded.chat.message_spacing, 18)
+        self.assertEqual(loaded.chat.message_spacing, 8)
         self.assertEqual(loaded.chat.max_messages, 100)
         self.assertEqual(loaded.chat.highlight_terms, ["Lausudo", "@Lausudo"])
         self.assertTrue(loaded.chat.filters.hide_commands)

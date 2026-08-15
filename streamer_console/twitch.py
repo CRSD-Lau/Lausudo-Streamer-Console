@@ -29,6 +29,7 @@ LOGGER = logging.getLogger("streamer_console.twitch")
 
 TWITCH_SCOPES = (
     "channel:manage:broadcast",
+    "user:read:chat",
     "moderator:read:followers",
     "channel:read:subscriptions",
     "bits:read",
@@ -264,6 +265,22 @@ class TwitchApiClient:
             headers=self.auth_headers(client_id, access_token),
         )
 
+    def create_stream_marker(
+        self,
+        client_id: str,
+        access_token: str,
+        broadcaster_id: str,
+        description: str,
+    ) -> dict[str, Any]:
+        result = self._request(
+            "https://api.twitch.tv/helix/streams/markers",
+            method="POST",
+            json_body={"user_id": broadcaster_id, "description": description[:140]},
+            headers=self.auth_headers(client_id, access_token),
+        )
+        rows = result.get("data", [])
+        return dict(rows[0]) if isinstance(rows, list) and rows else {}
+
     def create_eventsub(
         self,
         client_id: str,
@@ -352,6 +369,9 @@ class TwitchService:
     def update_info(self, title: str, category: str) -> None:
         self._enqueue("update", title.strip(), category.strip())
 
+    def create_marker(self, description: str = "Raid moment") -> None:
+        self._enqueue("marker", description.strip() or "Raid moment")
+
     def _enqueue(self, name: str, *values: Any) -> None:
         try:
             self._commands.put_nowait((name, values))
@@ -397,6 +417,8 @@ class TwitchService:
                         self._search_categories(str(args[0]))
                     elif name == "update":
                         self._update_channel(str(args[0]), str(args[1]))
+                    elif name == "marker":
+                        self._create_marker(str(args[0]))
                 except TwitchError as exc:
                     LOGGER.warning("Twitch operation failed operation=%s", name)
                     self._emit("error", message=str(exc))
@@ -464,7 +486,9 @@ class TwitchService:
     def _set_authorized(self, token: Mapping[str, Any], identity: Mapping[str, Any]) -> None:
         granted = {str(scope) for scope in identity.get("scopes", token.get("scope", ())) or ()}
         if not set(TWITCH_SCOPES).issubset(granted):
-            raise TwitchError("Twitch permissions changed; connect again to approve alerts and Stream Info")
+            raise TwitchError(
+                "Twitch permissions changed; connect again to approve native chat, alerts and Stream Info"
+            )
         with self._token_lock:
             self._token = dict(token)
             self._identity = dict(identity)
@@ -549,6 +573,20 @@ class TwitchService:
         self._emit("updated", message="Twitch stream info updated")
         self._load_channel_info()
 
+    def _create_marker(self, description: str) -> None:
+        client_id, access_token, broadcaster_id = self._credentials()
+        marker = self.api.create_stream_marker(
+            client_id, access_token, broadcaster_id, description[:140]
+        )
+        self._emit(
+            "marker",
+            success=True,
+            message="Moment marked on Twitch",
+            marker_id=str(marker.get("id", "")),
+            position_seconds=marker.get("position_seconds"),
+            description=description[:140],
+        )
+
     def _start_eventsub(self) -> None:
         if self._event_thread and self._event_thread.is_alive():
             return
@@ -617,6 +655,11 @@ class TwitchService:
     def _subscribe(self, session_id: str) -> set[str]:
         client_id, access_token, broadcaster_id = self._credentials()
         subscriptions = (
+            (
+                "channel.chat.message",
+                "1",
+                {"broadcaster_user_id": broadcaster_id, "user_id": broadcaster_id},
+            ),
             ("channel.follow", "2", {"broadcaster_user_id": broadcaster_id, "moderator_user_id": broadcaster_id}),
             ("channel.subscribe", "1", {"broadcaster_user_id": broadcaster_id}),
             ("channel.subscription.message", "1", {"broadcaster_user_id": broadcaster_id}),
@@ -632,6 +675,7 @@ class TwitchService:
                     client_id, access_token, event_type, version, condition, session_id
                 )
                 normalized = {
+                    "channel.chat.message": "chat",
                     "channel.follow": "follow",
                     "channel.subscribe": "subscription",
                     "channel.subscription.message": "resub",
@@ -654,6 +698,19 @@ class TwitchService:
         if not isinstance(event, Mapping):
             return None
         source_type = str(subscription.get("type", ""))
+        if source_type == "channel.chat.message":
+            username = str(event.get("chatter_user_name") or "").strip()
+            chat = event.get("message", {})
+            text = str(chat.get("text", "")) if isinstance(chat, Mapping) else ""
+            if not username or not text.strip():
+                return None
+            return {
+                "type": "twitch",
+                "chatname": username,
+                "chatmessage": text,
+                "event": "",
+                "id": "eventsub:" + str(metadata.get("message_id", "")),
+            }
         event_type = {
             "channel.follow": "follow",
             "channel.subscribe": "subscription",

@@ -58,6 +58,8 @@ class ObsStatus:
     vertical_scene: str = ""
     mic_muted: bool | None = None
     mic_monitor_type: str = ""
+    spotify_muted: bool | None = None
+    spotify_monitor_type: str = ""
     vertical_outputs: tuple[dict[str, Any], ...] = ()
     brb_state: str = "unknown"
     detail: str = ""
@@ -253,6 +255,19 @@ async def collect_obs_status(
     mic_monitor = await session.request(
         "GetInputAudioMonitorType", {"inputName": settings.mic_input}
     )
+    spotify_muted: bool | None = None
+    spotify_monitor_type = ""
+    try:
+        spotify_mute = await session.request(
+            "GetInputMute", {"inputName": settings.spotify_input}
+        )
+        spotify_monitor = await session.request(
+            "GetInputAudioMonitorType", {"inputName": settings.spotify_input}
+        )
+        spotify_muted = bool(spotify_mute.get("inputMuted"))
+        spotify_monitor_type = str(spotify_monitor.get("monitorType") or "")
+    except ObsRequestError:
+        LOGGER.warning("Spotify OBS input status unavailable")
 
     vertical_scene_name = ""
     vertical_outputs: tuple[dict[str, Any], ...] = ()
@@ -290,6 +305,8 @@ async def collect_obs_status(
         vertical_scene=vertical_scene_name,
         mic_muted=bool(mic_mute.get("inputMuted")),
         mic_monitor_type=str(mic_monitor.get("monitorType") or ""),
+        spotify_muted=spotify_muted,
+        spotify_monitor_type=spotify_monitor_type,
         vertical_outputs=vertical_outputs,
         brb_state=_brb_state(current_scene, vertical_scene_name, settings),
     )
@@ -427,4 +444,3 @@ class ObsMonitor:
 
 # Backward-friendly name for integration code drafted before the final class name.
 ObsClient = ObsMonitor
-

@@ -1,5 +1,24 @@
 # Troubleshooting
 
+## Spotify shows Waiting for Spotify
+
+Open the native Spotify app and start or pause any track once so Windows
+publishes its media session. The console targets Spotify by application identity
+and deliberately does not fall back to global media keys. This does not affect
+the OBS Spotify source or its monitoring route.
+
+## Twitch says authorization required after upgrading
+
+Open INFO and connect Twitch again. Native EventSub chat adds the
+`user:read:chat` permission, so Twitch requires a one-time approval refresh.
+TikTok/Social Stream collection and OBS controls remain independent.
+
+## Collector status is unclear
+
+Open HEALTH. It distinguishes the loopback listener, native Twitch EventSub,
+and the age of the most recent platform data. The recovery buttons open the
+exact Twitch pop-out and TikTok LIVE pages without changing their settings.
+
 ## No chat from either platform
 
 - Confirm Streamer Console shows its Social Stream listener as ready.

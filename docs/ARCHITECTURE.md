@@ -5,9 +5,8 @@
 The console is a native Qt Widgets application built for a 1080x1920 portrait display. It is deliberately separate from OBS, TikTok LIVE Studio, Voicemeeter, Discord, and the game. A failure in one integration must not stop the others.
 
 ```text
-Twitch chat page / connector ─┐
-                              ├─ Social Stream Ninja ─ HTTP POST on 127.0.0.1 ─┐
-TikTok LIVE page / connector ─┘                                                │
+Twitch EventSub native chat ────────────────────────────────────────────────────┐
+TikTok LIVE page ─ Social Stream Ninja ─ HTTP POST on 127.0.0.1 ───────────────┤
                   └─ viewer/follow/like telemetry ─ bounded audience counters │
 Twitch EventSub WebSocket ─ official named alerts ─ same receipt queue ────────┤
 Twitch Helix Get Streams ─ 15-second viewer-count polling ─ audience counters ┤
@@ -23,11 +22,15 @@ OBS WebSocket ─ read-only status worker ────────────�
 
 F1 button ─ Win32 SendInput(F1) ─ existing AutoHotkey helper ─ existing privacy controller
 F2 button ─ Win32 SendInput(F2) ─ existing AutoHotkey helper ─ Discord native Toggle Mute
+Spotify panel ─ Windows GSMTC session for Spotify only ─ previous/play-pause/next
 ```
 
 ## Chat collection
 
-Social Stream Ninja owns browser-chat collection and authentication. The console never reads browser cookies. A separate official Twitch Device Code authorization powers Stream Info and EventSub; its token is encrypted with Windows DPAPI and never enters ordinary configuration or logs.
+Social Stream Ninja owns TikTok browser-chat collection and authentication.
+Twitch chat uses the official EventSub WebSocket once authorized, with the
+Social Stream Twitch pop-out retained as a fallback. The console never reads
+browser cookies. Twitch Device Code tokens are encrypted with Windows DPAPI.
 
 The preferred transport is Social Stream Ninja's **Send all to POST server** option, pointed at:
 
@@ -57,7 +60,7 @@ The local POST path is fire-and-forget and has no replay queue. Start the consol
 The INFO control uses Twitch's official Helix API to read and patch the current
 channel title/category. OAuth uses the public-client Device Code Grant, so the
 application requires a Client ID but never a client secret. Once authorized,
-the EventSub WebSocket subscribes independently to follows, subscriptions,
+the EventSub WebSocket subscribes independently to native viewer chat, follows, subscriptions,
 resub messages, gifted subscriptions, cheers, incoming raids, and custom reward
 redemptions. Those records enter the same normalization and receipt-order queue
 as Social Stream messages. A Twitch API failure does not stop chat, OBS status,
@@ -74,6 +77,7 @@ The OBS worker connects to the existing authenticated OBS WebSocket on loopback.
 - recording state
 - current main scene
 - `Mic/Aux` mute/monitor state
+- `Spotify` mute/monitor state
 - Aitum current vertical scene and output state
 
 OBS failure changes only the OBS status area; chat stays available. Reconnection uses capped backoff.
@@ -86,6 +90,21 @@ The console intentionally contains no second copy of BRB or Discord logic. Its b
 - F2 is intercepted by the same helper and invokes Discord's native Toggle Mute shortcut.
 
 The BRB button state is derived from the actual main and Aitum vertical scenes. A mixed scene state is shown as a warning rather than guessed. Discord does not expose a supported local mute-state API in this setup, so the console reports that the toggle was sent but does not fabricate a muted/unmuted state.
+
+During BRB, privacy is VERIFIED only when both BRB scenes are active, the
+microphone is muted with monitoring disabled, Spotify remains unmuted with
+Monitor and Output enabled, and the vertical output remains active.
+
+## Session and media utilities
+
+Session files contain aggregate counts and bounded marker metadata only; viewer
+chat bodies are never written. MARK creates a local record first and then uses
+Twitch's stream-marker endpoint. Recent Alerts is a bounded in-memory view of
+meaningful events already accepted by the feed.
+
+Spotify uses Windows Global System Media Transport Controls and selects only a
+session whose application identity contains Spotify. No global media keys or
+Spotify credentials are used, and OBS/Voicemeeter remain audio authorities.
 
 ## Configuration and logs
 

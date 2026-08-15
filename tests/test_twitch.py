@@ -20,6 +20,7 @@ class MemoryTokenStore:
 class FakeApi:
     def __init__(self) -> None:
         self.updated = None
+        self.marker = None
 
     def validate(self, token):
         return {"user_id": "42", "login": "lausudo", "scopes": list(TWITCH_SCOPES)}
@@ -36,8 +37,30 @@ class FakeApi:
     def update_channel(self, client_id, token, broadcaster_id, *, title, game_id):
         self.updated = (title, game_id)
 
+    def create_stream_marker(self, client_id, token, broadcaster_id, description):
+        self.marker = (broadcaster_id, description)
+        return {"id": "marker-1", "position_seconds": 123}
+
 
 class TwitchEventTests(unittest.TestCase):
+    def test_native_chat_event_maps_to_normalized_collector_shape(self) -> None:
+        result = TwitchService._event_payload(
+            {
+                "metadata": {"message_id": "chat-1"},
+                "payload": {
+                    "subscription": {"type": "channel.chat.message"},
+                    "event": {
+                        "chatter_user_name": "PizzaGuy",
+                        "message": {"text": "clean pull"},
+                    },
+                },
+            }
+        )
+        self.assertEqual(result["event"], "")
+        self.assertEqual(result["chatname"], "PizzaGuy")
+        self.assertEqual(result["chatmessage"], "clean pull")
+        self.assertTrue(result["id"].startswith("eventsub:"))
+
     def test_eventsub_notifications_map_to_meaningful_feed_records(self) -> None:
         cases = (
             ("channel.follow", {"user_name": "Follower"}, "follow"),
@@ -79,6 +102,11 @@ class TwitchEventTests(unittest.TestCase):
 
         service._update_channel("New title", "World of Warcraft")
         self.assertEqual(api.updated, ("New title", "18122"))
+
+        service._create_marker("Professor Putricide kill")
+        self.assertEqual(api.marker, ("42", "Professor Putricide kill"))
+        marker = next(update for update in service.drain() if update.kind == "marker")
+        self.assertTrue(marker.payload["success"])
 
 
 if __name__ == "__main__":

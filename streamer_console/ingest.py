@@ -10,6 +10,7 @@ import logging
 from queue import Empty, Full, Queue
 import socket
 import threading
+import time
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlsplit
 
@@ -126,6 +127,9 @@ class SocialStreamIngestServer:
         # That makes receipt sequence the single total order seen by the GUI,
         # even when ThreadingHTTPServer processes simultaneous POST requests.
         self._receipt_lock = threading.Lock()
+        self._health_lock = threading.Lock()
+        self._last_received: dict[str, float] = {}
+        self._received_counts: dict[str, int] = {"twitch": 0, "tiktok": 0}
 
     @property
     def address(self) -> tuple[str, int]:
@@ -258,6 +262,27 @@ class SocialStreamIngestServer:
     def drain_telemetry(self, max_items: int = 256) -> list[TelemetryUpdate]:
         return self.telemetry.drain(max_items)
 
+    def health_snapshot(self) -> dict[str, Any]:
+        """Return secret-free collector liveness evidence for the UI."""
+
+        now = time.monotonic()
+        with self._health_lock:
+            last = dict(self._last_received)
+            counts = dict(self._received_counts)
+        return {
+            "listener_running": self.is_running,
+            "endpoint": self.endpoint,
+            "platforms": {
+                key: {
+                    "received": counts.get(key, 0),
+                    "seconds_since_data": (
+                        None if key not in last else max(0.0, now - last[key])
+                    ),
+                }
+                for key in ("twitch", "tiktok")
+            },
+        }
+
     def submit(self, payload: Mapping[str, Any]) -> bool:
         """Submit a non-HTTP collector record into the same receipt-ordered queue."""
 
@@ -272,6 +297,15 @@ class SocialStreamIngestServer:
                 if not isinstance(candidate, Mapping):
                     ignored += 1
                     continue
+                platform = str(
+                    candidate.get("type", candidate.get("platform", "")) or ""
+                ).strip().casefold()
+                if platform in {"twitch", "tiktok"}:
+                    with self._health_lock:
+                        self._last_received[platform] = time.monotonic()
+                        self._received_counts[platform] = (
+                            self._received_counts.get(platform, 0) + 1
+                        )
                 telemetry = extract_tiktok_telemetry(candidate)
                 if telemetry is not None:
                     deduplicated_kind = telemetry.kind in {

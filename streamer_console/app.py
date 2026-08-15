@@ -36,6 +36,8 @@ from .normalizer import MessageNormalizer
 from .obs_client import ObsMonitor, ObsStatus
 from .ui import MainWindow, ensure_application_theme
 from .twitch import TwitchService, TwitchUpdate
+from .spotify import SpotifyService
+from .session import SessionTracker
 
 
 LOGGER = logging.getLogger("streamer_console.app")
@@ -147,6 +149,8 @@ class StreamerConsoleRuntime(QObject):
         obs_monitor: ObsMonitor | None = None,
         control_bridge: ControlBridge | None = None,
         twitch_service: TwitchService | None = None,
+        spotify_service: SpotifyService | None = None,
+        session_tracker: SessionTracker | None = None,
         simulate: bool = False,
     ) -> None:
         super().__init__()
@@ -167,6 +171,8 @@ class StreamerConsoleRuntime(QObject):
         self.twitch_service = twitch_service or TwitchService(
             self.config.twitch, event_sink=getattr(self.ingest_server, "submit", None)
         )
+        self.spotify_service = spotify_service or SpotifyService()
+        self.session_tracker = session_tracker or SessionTracker()
         self.window = window or MainWindow(
             preferences=self.config.chat,
             persist_settings=False,
@@ -179,6 +185,7 @@ class StreamerConsoleRuntime(QObject):
         self._simulation_index = 0
         self._platform_last_seen: dict[str, float] = {}
         self._official_twitch_event_types: set[str] = set()
+        self._native_twitch_chat_ready = False
         self._connection_stale_seconds = 30.0
         self._last_streaming_state: bool | None = None
         self._live_metrics: dict[str, int | None] = {
@@ -198,6 +205,9 @@ class StreamerConsoleRuntime(QObject):
         self._twitch_timer = QTimer(self)
         self._twitch_timer.setInterval(100)
         self._twitch_timer.timeout.connect(self._drain_twitch)
+        self._spotify_timer = QTimer(self)
+        self._spotify_timer.setInterval(250)
+        self._spotify_timer.timeout.connect(self._drain_spotify)
         self._connection_timer = QTimer(self)
         self._connection_timer.setInterval(5_000)
         self._connection_timer.timeout.connect(self._age_connection_statuses)
@@ -221,6 +231,10 @@ class StreamerConsoleRuntime(QObject):
         self.window.twitch_category_search_requested.connect(
             self.twitch_service.search_categories
         )
+        self.window.marker_requested.connect(self._on_marker_requested)
+        self.window.spotify_previous_requested.connect(self.spotify_service.previous)
+        self.window.spotify_play_pause_requested.connect(self.spotify_service.play_pause)
+        self.window.spotify_next_requested.connect(self.spotify_service.next)
         self.window.installEventFilter(self)
         self.application.aboutToQuit.connect(self.shutdown)
 
@@ -253,15 +267,22 @@ class StreamerConsoleRuntime(QObject):
                 twitch_viewers=46,
             )
             self.window.update_live_metrics(self._live_metrics)
+            self.window.update_spotify_status(
+                {"available": True, "title": "Icecrown Citadel", "artist": "Raid Mix", "playing": True, "position_ms": 92000, "duration_ms": 240000}
+            )
             self.window.brb_button.setEnabled(False)
             self.window.discord_button.setEnabled(False)
             self.window.stream_info_button.setEnabled(False)
+            self.window.marker_button.setEnabled(False)
             self.window.statusBar().showMessage(
                 "SIMULATION MODE — local messages only; controls disabled"
             )
             self._simulation_timer.start()
             self._emit_simulated_message()
             return
+
+        self.spotify_service.start()
+        self._spotify_timer.start()
 
         if self.config.twitch.enabled:
             self.twitch_service.start()
@@ -336,6 +357,8 @@ class StreamerConsoleRuntime(QObject):
                         changed = True
                 if changed:
                     self.window.update_live_metrics(self._live_metrics)
+                    self.session_tracker.record_metrics(self._live_metrics)
+                    self.window.update_session_summary(self.session_tracker.snapshot())
         try:
             messages = self.ingest_server.drain(250)
         except Exception as exc:
@@ -348,6 +371,12 @@ class StreamerConsoleRuntime(QObject):
             for message in messages
             if not (
                 str(getattr(message, "platform", "")).casefold() == "twitch"
+                and str(getattr(message, "kind", "")).casefold() == "chat"
+                and self._native_twitch_chat_ready
+                and not str(getattr(message, "source_id", "")).startswith("eventsub:")
+            )
+            and not (
+                str(getattr(message, "platform", "")).casefold() == "twitch"
                 and str(getattr(message, "kind", "")).casefold() == "event"
                 and str(getattr(message, "event_type", "")).casefold()
                 in self._official_twitch_event_types
@@ -356,6 +385,9 @@ class StreamerConsoleRuntime(QObject):
         ]
         if visible_messages:
             self.window.add_messages(visible_messages)
+            for message in visible_messages:
+                self.session_tracker.record_message(message)
+            self.window.update_session_summary(self.session_tracker.snapshot())
         received_platforms = {
             str(getattr(message, "platform", "")).strip().casefold()
             for message in messages
@@ -387,6 +419,15 @@ class StreamerConsoleRuntime(QObject):
                     platform, ConnectionState.UNKNOWN, "NO RECENT DATA"
                 )
                 del self._platform_last_seen[key]
+        health_getter = getattr(self.ingest_server, "health_snapshot", None)
+        if callable(health_getter):
+            try:
+                health = dict(health_getter())
+            except Exception:
+                health = {"listener_running": False, "platforms": {}}
+            health["twitch_native"] = self._native_twitch_chat_ready
+            self.window.update_collector_health(health)
+        self.window.update_session_summary(self.session_tracker.snapshot())
 
     def _drain_obs(self) -> None:
         try:
@@ -402,9 +443,15 @@ class StreamerConsoleRuntime(QObject):
             if streaming is not None:
                 current_streaming = bool(streaming)
                 if current_streaming and self._last_streaming_state is False:
+                    self.session_tracker.reset()
                     self._live_metrics["tiktok_follows"] = 0
                     self._live_metrics["tiktok_likes"] = 0
                     self.window.update_live_metrics(self._live_metrics)
+                elif not current_streaming and self._last_streaming_state is True:
+                    try:
+                        self.session_tracker.save(end=True)
+                    except OSError:
+                        LOGGER.warning("Session summary save failed")
                 self._last_streaming_state = current_streaming
             self.window.update_obs_status(payload)
 
@@ -421,6 +468,10 @@ class StreamerConsoleRuntime(QObject):
                     message = self.normalizer.normalize(raw)
                     if message is not None:
                         self.window.add_message(message)
+                        self.session_tracker.record_message(message)
+                        self.window.update_session_summary(
+                            self.session_tracker.snapshot()
+                        )
                         self._platform_last_seen["twitch"] = time.monotonic()
                         self.window.update_connection(
                             Platform.TWITCH, ConnectionState.CONNECTED, "RECEIVING"
@@ -431,6 +482,20 @@ class StreamerConsoleRuntime(QObject):
                         "twitch_viewers"
                     )
                     self.window.update_live_metrics(self._live_metrics)
+                    self.session_tracker.record_metrics(self._live_metrics)
+                    self.window.update_session_summary(self.session_tracker.snapshot())
+                elif update.kind == "marker" and update.payload.get("success"):
+                    self.session_tracker.mark_latest_synced()
+                    self.window.update_session_summary(self.session_tracker.snapshot())
+                    self.window.statusBar().showMessage(
+                        str(update.payload.get("message", "Moment marked on Twitch")),
+                        5_000,
+                    )
+                elif update.kind == "error":
+                    self.window.statusBar().showMessage(
+                        str(update.payload.get("message", "Twitch operation failed")),
+                        7_000,
+                    )
                 self.window.update_twitch(update)
                 if update.kind == "eventsub_status" and update.payload.get("connected"):
                     event_types = update.payload.get("event_types", ())
@@ -438,9 +503,31 @@ class StreamerConsoleRuntime(QObject):
                         self._official_twitch_event_types = {
                             str(value).casefold() for value in event_types
                         }
+                        self._native_twitch_chat_ready = "chat" in self._official_twitch_event_types
                     self.window.update_connection(
-                        Platform.TWITCH, ConnectionState.CONNECTED, "ALERTS READY"
+                        Platform.TWITCH,
+                        ConnectionState.CONNECTED,
+                        "CHAT + ALERTS READY" if self._native_twitch_chat_ready else "ALERTS READY",
                     )
+                elif update.kind == "eventsub_status":
+                    self._native_twitch_chat_ready = False
+
+    def _drain_spotify(self) -> None:
+        try:
+            updates = self.spotify_service.drain(16)
+        except Exception as exc:
+            LOGGER.error("Spotify update drain failed type=%s", type(exc).__name__)
+            return
+        for update in updates:
+            self.window.update_spotify_status(update.payload)
+
+    def _on_marker_requested(self, description: str) -> None:
+        if self.simulate:
+            return
+        self.session_tracker.add_marker(description, twitch_synced=False)
+        self.window.update_session_summary(self.session_tracker.snapshot())
+        self.twitch_service.create_marker(description)
+        self.window.statusBar().showMessage("Moment marked locally; syncing to Twitch", 4_000)
 
     def _on_twitch_connect(self, client_id: str) -> None:
         normalized = client_id.strip()
@@ -576,6 +663,7 @@ class StreamerConsoleRuntime(QObject):
             self._save_timer,
             self._simulation_timer,
             self._twitch_timer,
+            self._spotify_timer,
         ):
             timer.stop()
         try:
@@ -596,6 +684,14 @@ class StreamerConsoleRuntime(QObject):
                 self.twitch_service.stop()
             except Exception as exc:
                 LOGGER.error("Twitch shutdown failed type=%s", type(exc).__name__)
+            try:
+                self.spotify_service.stop()
+            except Exception as exc:
+                LOGGER.error("Spotify shutdown failed type=%s", type(exc).__name__)
+            try:
+                self.session_tracker.save(end=True)
+            except OSError:
+                LOGGER.warning("Final session summary save failed")
         LOGGER.info("Streamer Console stopped")
 
 

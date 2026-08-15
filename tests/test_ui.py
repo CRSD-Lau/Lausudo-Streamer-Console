@@ -435,6 +435,45 @@ class PortraitWindowTests(unittest.TestCase):
         self.assertEqual(self.window.brb_button.property("state"), "brb")
         self.assertIn("BRB ACTIVE", self.window.brb_button.text())
 
+    def test_brb_privacy_verification_includes_mic_monitor_spotify_and_vertical(self) -> None:
+        self.window.update_obs_status(
+            {
+                "connected": True,
+                "brb_state": "brb",
+                "mic_muted": True,
+                "mic_monitor_type": "OBS_MONITORING_TYPE_NONE",
+                "spotify_muted": False,
+                "spotify_monitor_type": "OBS_MONITORING_TYPE_MONITOR_AND_OUTPUT",
+                "vertical_active": True,
+            }
+        )
+        pump_events()
+        self.assertEqual(self.window.privacy_metric.value.text(), "VERIFIED")
+
+    def test_spotify_remote_and_recent_alert_drawer_receive_authoritative_state(self) -> None:
+        self.window.update_spotify_status(
+            {"available": True, "title": "The Frozen Throne", "artist": "Raid Mix", "playing": True}
+        )
+        self.window.add_message(
+            {"sequence": 1, "platform": "twitch", "username": "Raider", "text": "raided", "kind": "event", "event_type": "raid"}
+        )
+        pump_events()
+        self.assertEqual(self.window.spotify_panel.title.text(), "The Frozen Throne")
+        self.assertTrue(self.window.spotify_panel.toggle.isEnabled())
+        self.assertEqual(len(self.window._recent_alerts), 1)
+
+    def test_default_chat_rows_are_compact_but_still_readable(self) -> None:
+        self.window.add_message(
+            {"sequence": 1, "platform": "twitch", "username": "Viewer", "text": "short message"}
+        )
+        pump_events()
+        index = self.window.model.index(0, 0)
+        option = QStyleOptionViewItem()
+        option.rect = QRect(0, 0, 900, 100)
+        height = self.window.delegate.sizeHint(option, index).height()
+        self.assertGreaterEqual(height, 72)
+        self.assertLess(height, 96)
+
     def test_ready_indicators_use_teal_state_without_claiming_chat_connection(self) -> None:
         self.window.update_connection(
             Platform.TWITCH, ConnectionState.UNKNOWN, "WAITING FOR CHAT"
