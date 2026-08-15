@@ -13,6 +13,10 @@ Use only the official Social Stream Ninja project and extension:
 3. Enable **Send all to POST server**.
 4. Set the destination to `http://127.0.0.1:17840/ingest/socialstream`.
 5. Use one Social Stream Ninja collector instance only. Do not run the extension and standalone app with the same session at the same time.
+6. Enable **Show viewer count per source** for the TikTok current-viewer figure.
+7. Enable **Show TikTok likes in main chat/events** for the running like figure.
+   The console consumes these as telemetry and does not show the raw records in
+   chat.
 
 ## Twitch
 
@@ -23,6 +27,13 @@ For ordinary chat, keep the official Twitch chat or pop-out chat open with Socia
 Open `https://www.tiktok.com/@lausudo/live` while the channel is live and enable Social Stream Ninja for that page. TikTok collection cannot be fully verified while the channel is offline. Region, login, CAPTCHA, rate limiting, and TikTok changes can affect availability.
 
 Keep the chat page open and visible enough that Chromium does not discard or throttle it. Do not start a second TikTok collector, because duplicate collectors can cause duplicate messages or rate limits.
+
+The TikTok viewer number is the latest value exposed by the LIVE page. **New
+follows** counts named follow events received since Streamer Console launched.
+**Likes** counts like activity records captured this stream; TikTok may batch
+or deduplicate DOM events, so it is a useful running activity indicator rather
+than an authoritative account-level total. Twitch viewers come from Twitch's
+official API and refresh approximately every 15 seconds.
 
 ## Status meaning
 

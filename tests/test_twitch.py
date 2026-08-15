@@ -27,6 +27,9 @@ class FakeApi:
     def channel_info(self, client_id, token, broadcaster_id):
         return {"title": "ICC tonight", "game_name": "World of Warcraft", "game_id": "18122"}
 
+    def stream_status(self, client_id, token, broadcaster_id):
+        return {"live": True, "viewers": 46}
+
     def categories(self, client_id, token, query):
         return [{"id": "18122", "name": "World of Warcraft"}]
 
@@ -70,6 +73,9 @@ class TwitchEventTests(unittest.TestCase):
         updates = service.drain()
         channel = next(update for update in updates if update.kind == "channel_info")
         self.assertEqual(channel.payload["title"], "ICC tonight")
+        metrics = next(update for update in updates if update.kind == "metrics")
+        self.assertEqual(metrics.payload["twitch_viewers"], 46)
+        self.assertTrue(metrics.payload["twitch_live"])
 
         service._update_channel("New title", "World of Warcraft")
         self.assertEqual(api.updated, ("New title", "18122"))

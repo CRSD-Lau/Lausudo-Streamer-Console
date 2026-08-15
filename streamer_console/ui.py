@@ -187,6 +187,53 @@ class Metric(QWidget):
         repolish(self.value)
 
 
+class AudienceMetric(QWidget):
+    """Glanceable count used in the compact live-pulse strip."""
+
+    def __init__(self, caption: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("audienceMetric")
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
+        self.caption = QLabel(caption.upper())
+        self.caption.setObjectName("audienceCaption")
+        self.value = QLabel("—")
+        self.value.setObjectName("audienceValue")
+        self.value.setProperty("state", "unknown")
+        self._layout.addWidget(self.caption)
+        self._layout.addWidget(self.value)
+
+    def set_compact(self, compact: bool) -> None:
+        self._layout.setDirection(
+            QBoxLayout.Direction.LeftToRight
+            if compact
+            else QBoxLayout.Direction.TopToBottom
+        )
+        self._layout.setSpacing(5 if compact else 0)
+
+    def set_count(self, value: Any) -> None:
+        count: int | None
+        try:
+            count = None if value is None else max(0, int(value))
+        except (TypeError, ValueError):
+            count = None
+        self.value.setText(_format_count(count) if count is not None else "—")
+        self.value.setProperty("state", "active" if count is not None else "unknown")
+        self.value.setAccessibleName(
+            f"{self.caption.text().lower()} {count if count is not None else 'unavailable'}"
+        )
+        repolish(self.value)
+
+
+def _format_count(value: int) -> str:
+    for divisor, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")):
+        if value >= divisor:
+            scaled = value / divisor
+            return f"{scaled:.1f}{suffix}" if scaled < 10 else f"{scaled:.0f}{suffix}"
+    return f"{value:,}"
+
+
 class ChatItemDelegate(QStyledItemDelegate):
     """Paints one readable, wrapped message without per-row widgets."""
 
@@ -641,6 +688,7 @@ class MainWindow(QMainWindow):
     incoming_brb_state = Signal(str)
     incoming_discord_state = Signal(object)
     incoming_twitch_update = Signal(object)
+    incoming_live_metrics = Signal(object)
 
     def __init__(
         self,
@@ -665,6 +713,7 @@ class MainWindow(QMainWindow):
         self._brb_state = "unknown"
         self._discord_state: bool | None = None
         self._compact_layout: bool | None = None
+        self._short_layout: bool | None = None
         self._frame_fit_attempt = 0
         self._frame_fit_last_signature: tuple[int, int, int, int] | None = None
         self._frame_fit_applied = False
@@ -675,6 +724,12 @@ class MainWindow(QMainWindow):
         self._twitch_dialog: TwitchStreamInfoDialog | None = None
         self._twitch_client_id = ""
         self._twitch_updates: dict[str, Any] = {}
+        self._live_metrics: dict[str, int | None] = {
+            "tiktok_viewers": None,
+            "tiktok_follows": 0,
+            "tiktok_likes": 0,
+            "twitch_viewers": None,
+        }
 
         loaded_preferences = (
             preferences
@@ -783,6 +838,31 @@ class MainWindow(QMainWindow):
         connections.addWidget(divider)
         connections.addWidget(self.tiktok_connection, 1)
         layout.addWidget(connection_strip)
+
+        self.audience_strip = QFrame()
+        self.audience_strip.setObjectName("audienceStrip")
+        self.audience_strip.setFixedHeight(58)
+        audience_layout = QHBoxLayout(self.audience_strip)
+        audience_layout.setContentsMargins(14, 5, 14, 5)
+        audience_layout.setSpacing(8)
+        self.tiktok_viewers_metric = AudienceMetric("TT VIEWERS")
+        self.tiktok_follows_metric = AudienceMetric("NEW FOLLOWS")
+        self.tiktok_likes_metric = AudienceMetric("TT LIKES")
+        self.twitch_viewers_metric = AudienceMetric("TW VIEWERS")
+        self._audience_metrics = (
+            self.tiktok_viewers_metric,
+            self.tiktok_follows_metric,
+            self.tiktok_likes_metric,
+            self.twitch_viewers_metric,
+        )
+        for index, metric in enumerate(self._audience_metrics):
+            audience_layout.addWidget(metric, 1)
+            if index < len(self._audience_metrics) - 1:
+                divider = QFrame()
+                divider.setFrameShape(QFrame.Shape.VLine)
+                divider.setObjectName("audienceDivider")
+                audience_layout.addWidget(divider)
+        layout.addWidget(self.audience_strip)
 
         chat_header = QWidget()
         chat_header.setFixedHeight(42)
@@ -903,6 +983,7 @@ class MainWindow(QMainWindow):
         self.incoming_brb_state.connect(self._set_brb_state)
         self.incoming_discord_state.connect(self._set_discord_state)
         self.incoming_twitch_update.connect(self._update_twitch)
+        self.incoming_live_metrics.connect(self._update_live_metrics)
 
     def _reader_tool(self, text: str, tooltip: str) -> QToolButton:
         button = QToolButton()
@@ -924,9 +1005,15 @@ class MainWindow(QMainWindow):
 
     def _update_responsive_layout(self, width: int) -> None:
         compact = width < self._COMPACT_WIDTH
-        if compact == self._compact_layout:
+        short = self.height() < 760
+        if compact == self._compact_layout and short == self._short_layout:
             return
         self._compact_layout = compact
+        self._short_layout = short
+
+        for metric in self._audience_metrics:
+            metric.set_compact(short)
+        self.audience_strip.setFixedHeight(34 if short else 58)
 
         for metric in self._status_metrics:
             self.metric_layout.removeWidget(metric)
@@ -939,8 +1026,12 @@ class MainWindow(QMainWindow):
                 self.metric_layout.addWidget(metric, row, column)
             self.metric_layout.setColumnStretch(0, 1)
             self.metric_layout.setColumnStretch(1, 1)
-            self.status_strip.setFixedHeight(135)
-            control_style = "font-size: 15px; padding: 8px 10px;"
+            self.status_strip.setFixedHeight(128 if short else 135)
+            control_style = (
+                "font-size: 15px; min-height: 74px; padding: 5px 10px;"
+                if short
+                else "font-size: 15px; padding: 8px 10px;"
+            )
             self.stream_info_button.setText("INFO")
             self.stream_info_button.setMinimumWidth(56)
         else:
@@ -982,6 +1073,24 @@ class MainWindow(QMainWindow):
 
     def update_twitch(self, update: Any) -> None:
         self.incoming_twitch_update.emit(update)
+
+    def update_live_metrics(self, metrics: Mapping[str, Any] | Any) -> None:
+        self.incoming_live_metrics.emit(metrics)
+
+    @Slot(object)
+    def _update_live_metrics(self, metrics: Mapping[str, Any] | Any) -> None:
+        values = metrics if isinstance(metrics, Mapping) else {}
+        for key in self._live_metrics:
+            if key in values:
+                raw = values[key]
+                try:
+                    self._live_metrics[key] = None if raw is None else max(0, int(raw))
+                except (TypeError, ValueError):
+                    self._live_metrics[key] = None
+        self.tiktok_viewers_metric.set_count(self._live_metrics["tiktok_viewers"])
+        self.tiktok_follows_metric.set_count(self._live_metrics["tiktok_follows"])
+        self.tiktok_likes_metric.set_count(self._live_metrics["tiktok_likes"])
+        self.twitch_viewers_metric.set_count(self._live_metrics["twitch_viewers"])
 
     @Slot()
     def open_twitch_stream_info(self) -> None:

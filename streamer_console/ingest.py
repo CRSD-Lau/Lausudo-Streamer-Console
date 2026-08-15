@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -14,6 +15,7 @@ from urllib.parse import urlsplit
 
 from .config import IngestSettings
 from .normalizer import MessageNormalizer, NormalizedMessage
+from .telemetry import TelemetryUpdate, extract_tiktok_telemetry
 
 
 LOGGER = logging.getLogger(__name__)
@@ -63,6 +65,34 @@ class BoundedMessageQueue:
         return self._queue.qsize()
 
 
+class BoundedTelemetryQueue:
+    """Tiny newest-wins queue for counter updates."""
+
+    def __init__(self, maxsize: int = 256) -> None:
+        self._queue: Queue[TelemetryUpdate] = Queue(maxsize=max(1, int(maxsize)))
+
+    def put(self, update: TelemetryUpdate) -> None:
+        try:
+            self._queue.put_nowait(update)
+            return
+        except Full:
+            pass
+        try:
+            self._queue.get_nowait()
+            self._queue.put_nowait(update)
+        except (Empty, Full):
+            pass
+
+    def drain(self, max_items: int = 256) -> list[TelemetryUpdate]:
+        items: list[TelemetryUpdate] = []
+        for _ in range(max(0, int(max_items))):
+            try:
+                items.append(self._queue.get_nowait())
+            except Empty:
+                break
+        return items
+
+
 class SocialStreamIngestServer:
     """A small, dependency-free loopback webhook receiver.
 
@@ -86,6 +116,9 @@ class SocialStreamIngestServer:
             raise ValueError("ingest path must start with '/'")
         self.normalizer = normalizer or MessageNormalizer()
         self.messages = output_queue or BoundedMessageQueue(self.settings.queue_size)
+        self.telemetry = BoundedTelemetryQueue()
+        self._telemetry_source_ids: set[str] = set()
+        self._telemetry_source_order: deque[str] = deque()
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
@@ -222,6 +255,9 @@ class SocialStreamIngestServer:
     def drain(self, max_items: int = 200) -> list[NormalizedMessage]:
         return self.messages.drain(max_items)
 
+    def drain_telemetry(self, max_items: int = 256) -> list[TelemetryUpdate]:
+        return self.telemetry.drain(max_items)
+
     def submit(self, payload: Mapping[str, Any]) -> bool:
         """Submit a non-HTTP collector record into the same receipt-ordered queue."""
 
@@ -236,6 +272,25 @@ class SocialStreamIngestServer:
                 if not isinstance(candidate, Mapping):
                     ignored += 1
                     continue
+                telemetry = extract_tiktok_telemetry(candidate)
+                if telemetry is not None:
+                    deduplicated_kind = telemetry.kind in {
+                        "tiktok_follow",
+                        "tiktok_like",
+                    }
+                    duplicate = (
+                        deduplicated_kind
+                        and telemetry.source_id
+                        and telemetry.source_id in self._telemetry_source_ids
+                    )
+                    if not duplicate:
+                        if deduplicated_kind and telemetry.source_id:
+                            self._telemetry_source_ids.add(telemetry.source_id)
+                            self._telemetry_source_order.append(telemetry.source_id)
+                            if len(self._telemetry_source_order) > 4096:
+                                expired = self._telemetry_source_order.popleft()
+                                self._telemetry_source_ids.discard(expired)
+                        self.telemetry.put(telemetry)
                 message = self.normalizer.normalize(candidate)
                 if message is None:
                     ignored += 1

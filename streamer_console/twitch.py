@@ -217,6 +217,26 @@ class TwitchApiClient:
         rows = result.get("data", [])
         return dict(rows[0]) if isinstance(rows, list) and rows else {}
 
+    def stream_status(
+        self, client_id: str, access_token: str, broadcaster_id: str
+    ) -> dict[str, Any]:
+        """Return the broadcaster's current live state and viewer count."""
+
+        result = self._request(
+            "https://api.twitch.tv/helix/streams?"
+            + urlencode({"user_id": broadcaster_id}),
+            headers=self.auth_headers(client_id, access_token),
+        )
+        rows = result.get("data", [])
+        if not isinstance(rows, list) or not rows:
+            return {"live": False, "viewers": 0}
+        row = rows[0] if isinstance(rows[0], Mapping) else {}
+        try:
+            viewers = max(0, int(row.get("viewer_count", 0) or 0))
+        except (TypeError, ValueError):
+            viewers = 0
+        return {"live": True, "viewers": viewers}
+
     def categories(self, client_id: str, access_token: str, query: str) -> list[dict[str, Any]]:
         result = self._request(
             "https://api.twitch.tv/helix/search/categories?" + urlencode({"query": query, "first": 10}),
@@ -268,6 +288,8 @@ class TwitchApiClient:
 
 class TwitchService:
     """Background Twitch API command worker plus independent EventSub monitor."""
+
+    METRICS_POLL_SECONDS = 15.0
 
     def __init__(
         self,
@@ -356,25 +378,36 @@ class TwitchService:
                 self._emit("status", connected=False, state="authorization_required")
         else:
             self._emit("status", connected=False, state="needs_client_id")
+        next_metrics_at = time.monotonic() + self.METRICS_POLL_SECONDS
         while not self._stop.is_set():
             try:
                 name, args = self._commands.get(timeout=0.5)
             except queue.Empty:
-                continue
-            if name == "stop":
-                break
-            try:
-                if name == "connect":
-                    self._authorize(str(args[0]))
-                elif name == "refresh":
-                    self._load_channel_info()
-                elif name == "categories":
-                    self._search_categories(str(args[0]))
-                elif name == "update":
-                    self._update_channel(str(args[0]), str(args[1]))
-            except TwitchError as exc:
-                LOGGER.warning("Twitch operation failed operation=%s", name)
-                self._emit("error", message=str(exc))
+                name = ""
+                args = ()
+            if name:
+                if name == "stop":
+                    break
+                try:
+                    if name == "connect":
+                        self._authorize(str(args[0]))
+                    elif name == "refresh":
+                        self._load_channel_info()
+                    elif name == "categories":
+                        self._search_categories(str(args[0]))
+                    elif name == "update":
+                        self._update_channel(str(args[0]), str(args[1]))
+                except TwitchError as exc:
+                    LOGGER.warning("Twitch operation failed operation=%s", name)
+                    self._emit("error", message=str(exc))
+            now = time.monotonic()
+            if now >= next_metrics_at and self._has_credentials():
+                try:
+                    self._load_stream_metrics()
+                except TwitchError:
+                    LOGGER.warning("Twitch viewer count refresh failed")
+                    self._emit("metrics", twitch_viewers=None, twitch_live=None)
+                next_metrics_at = now + self.METRICS_POLL_SECONDS
 
     def _restore_authorization(self) -> None:
         token = self.token_store.load()
@@ -442,7 +475,22 @@ class TwitchService:
             account=str(identity.get("login", "")),
         )
         self._load_channel_info()
+        try:
+            self._load_stream_metrics()
+        except TwitchError:
+            # Viewer telemetry is optional and must never invalidate an
+            # otherwise healthy channel-info/EventSub authorization.
+            LOGGER.warning("Initial Twitch viewer count unavailable")
+            self._emit("metrics", twitch_viewers=None, twitch_live=None)
         self._start_eventsub()
+
+    def _has_credentials(self) -> bool:
+        with self._token_lock:
+            return bool(
+                self.settings.client_id
+                and (self._token or {}).get("access_token")
+                and (self._identity or {}).get("user_id")
+            )
 
     def _credentials(self) -> tuple[str, str, str]:
         with self._token_lock:
@@ -462,6 +510,15 @@ class TwitchService:
             title=str(info.get("title", "")),
             category=str(info.get("game_name", "")),
             category_id=str(info.get("game_id", "")),
+        )
+
+    def _load_stream_metrics(self) -> None:
+        client_id, access_token, broadcaster_id = self._credentials()
+        status = self.api.stream_status(client_id, access_token, broadcaster_id)
+        self._emit(
+            "metrics",
+            twitch_viewers=max(0, int(status.get("viewers", 0) or 0)),
+            twitch_live=bool(status.get("live", False)),
         )
 
     def _search_categories(self, query: str) -> None:

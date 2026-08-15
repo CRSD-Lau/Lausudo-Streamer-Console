@@ -8,7 +8,9 @@ The console is a native Qt Widgets application built for a 1080x1920 portrait di
 Twitch chat page / connector ─┐
                               ├─ Social Stream Ninja ─ HTTP POST on 127.0.0.1 ─┐
 TikTok LIVE page / connector ─┘                                                │
+                  └─ viewer/follow/like telemetry ─ bounded audience counters │
 Twitch EventSub WebSocket ─ official named alerts ─ same receipt queue ────────┤
+Twitch Helix Get Streams ─ 15-second viewer-count polling ─ audience counters ┤
                                                                                ▼
                                                                      normalize + sequence
                                                                                │
@@ -37,6 +39,13 @@ The receiver binds only to loopback, caps request size, validates JSON, assigns 
 
 The normalization boundary accepts genuine viewer chat and a narrow named-event allowlist: follow, subscription, resubscription, gift, raid, Bits, reward redemption, and TikTok share. Each alert must identify a supported platform and viewer. Generic events, anonymous platform notices, joins, likes, counters, placeholders, and unknown-platform payloads are structurally discarded. This is an invariant rather than an optional UI filter. Optional bot, command, duplicate, and repeated-spam filters run only after that boundary.
 
+Before normalization, a separate bounded telemetry extractor recognizes only
+TikTok viewer updates, named follows, and captured like events. Viewer updates
+replace the current count; follow and like events increment stream-session
+counters which reset on OBS's stopped-to-streaming transition. These records
+never bypass the chat allowlist. TikTok telemetry is
+best effort because it comes from the LIVE page DOM through Social Stream.
+
 Messages are deduplicated conservatively and held in a bounded model. The default retention is 750 messages. The two platform paths are independent upstream; a missing TikTok message never blocks a Twitch message. Because the POST path is fire-and-forget rather than a persistent collector socket, a platform is shown as **RECEIVING** only after recent viewer chat and ages to **NO RECENT DATA** after 30 seconds of silence. Social Stream Ninja/browser owns upstream reconnection.
 
 The small teal status dot communicates a ready local collector or recently received chat without claiming a persistent upstream socket. Reconnecting is amber and disconnected is red.
@@ -53,6 +62,8 @@ resub messages, gifted subscriptions, cheers, incoming raids, and custom reward
 redemptions. Those records enter the same normalization and receipt-order queue
 as Social Stream messages. A Twitch API failure does not stop chat, OBS status,
 TikTok collection, or stream controls.
+The same user token polls Helix Get Streams every 15 seconds for the current
+Twitch viewer count; no additional scope is required.
 
 ## OBS status
 

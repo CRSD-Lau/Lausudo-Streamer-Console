@@ -180,6 +180,14 @@ class StreamerConsoleRuntime(QObject):
         self._platform_last_seen: dict[str, float] = {}
         self._official_twitch_event_types: set[str] = set()
         self._connection_stale_seconds = 30.0
+        self._last_streaming_state: bool | None = None
+        self._live_metrics: dict[str, int | None] = {
+            "tiktok_viewers": None,
+            "tiktok_follows": 0,
+            "tiktok_likes": 0,
+            "twitch_viewers": None,
+        }
+        self.window.update_live_metrics(self._live_metrics)
 
         self._ingest_timer = QTimer(self)
         self._ingest_timer.setInterval(75)
@@ -238,6 +246,13 @@ class StreamerConsoleRuntime(QObject):
                     "brb_state": "live",
                 }
             )
+            self._live_metrics.update(
+                tiktok_viewers=128,
+                tiktok_follows=12,
+                tiktok_likes=3400,
+                twitch_viewers=46,
+            )
+            self.window.update_live_metrics(self._live_metrics)
             self.window.brb_button.setEnabled(False)
             self.window.discord_button.setEnabled(False)
             self.window.stream_info_button.setEnabled(False)
@@ -295,6 +310,32 @@ class StreamerConsoleRuntime(QObject):
         return super().eventFilter(watched, event)
 
     def _drain_messages(self) -> None:
+        telemetry_drain = getattr(self.ingest_server, "drain_telemetry", None)
+        if callable(telemetry_drain):
+            try:
+                telemetry = telemetry_drain(256)
+            except Exception as exc:
+                LOGGER.error("Telemetry queue drain failed type=%s", type(exc).__name__)
+            else:
+                changed = False
+                for update in telemetry:
+                    kind = str(getattr(update, "kind", ""))
+                    value = max(0, int(getattr(update, "value", 0) or 0))
+                    if kind == "tiktok_viewers":
+                        self._live_metrics["tiktok_viewers"] = value
+                        changed = True
+                    elif kind == "tiktok_follow":
+                        self._live_metrics["tiktok_follows"] = int(
+                            self._live_metrics["tiktok_follows"] or 0
+                        ) + value
+                        changed = True
+                    elif kind == "tiktok_like":
+                        self._live_metrics["tiktok_likes"] = int(
+                            self._live_metrics["tiktok_likes"] or 0
+                        ) + value
+                        changed = True
+                if changed:
+                    self.window.update_live_metrics(self._live_metrics)
         try:
             messages = self.ingest_server.drain(250)
         except Exception as exc:
@@ -356,7 +397,16 @@ class StreamerConsoleRuntime(QObject):
         if statuses:
             # Only the newest snapshot matters; this also prevents UI lag after
             # a temporarily blocked event loop.
-            self.window.update_obs_status(obs_status_payload(statuses[-1]))
+            payload = obs_status_payload(statuses[-1])
+            streaming = payload.get("streaming")
+            if streaming is not None:
+                current_streaming = bool(streaming)
+                if current_streaming and self._last_streaming_state is False:
+                    self._live_metrics["tiktok_follows"] = 0
+                    self._live_metrics["tiktok_likes"] = 0
+                    self.window.update_live_metrics(self._live_metrics)
+                self._last_streaming_state = current_streaming
+            self.window.update_obs_status(payload)
 
     def _drain_twitch(self) -> None:
         try:
@@ -376,6 +426,11 @@ class StreamerConsoleRuntime(QObject):
                             Platform.TWITCH, ConnectionState.CONNECTED, "RECEIVING"
                         )
             else:
+                if update.kind == "metrics":
+                    self._live_metrics["twitch_viewers"] = update.payload.get(
+                        "twitch_viewers"
+                    )
+                    self.window.update_live_metrics(self._live_metrics)
                 self.window.update_twitch(update)
                 if update.kind == "eventsub_status" and update.payload.get("connected"):
                     event_types = update.payload.get("event_types", ())

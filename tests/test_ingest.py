@@ -140,6 +140,47 @@ class IngestServerTests(unittest.TestCase):
             ],
         )
 
+    def test_tiktok_telemetry_is_counted_but_stays_out_of_chat(self) -> None:
+        self.server.settings.max_body_bytes = 4096
+        status, response = post(
+            self.host,
+            self.port,
+            "/ingest/socialstream",
+            {
+                "messages": [
+                    {"type": "tiktok", "event": "viewer_update", "meta": 27},
+                    {"type": "tiktok", "event": "liked", "chatname": "Fan"},
+                    {"type": "tiktok", "event": "followed", "chatname": "NewFan"},
+                ]
+            },
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(response, {"accepted": 1, "ignored": 2})
+        # Follow remains a meaningful inline alert; likes and viewer updates do not.
+        self.assertEqual([message.event_type for message in self.server.drain()], ["follow"])
+        self.assertEqual(
+            [(item.kind, item.value) for item in self.server.drain_telemetry()],
+            [
+                ("tiktok_viewers", 27),
+                ("tiktok_like", 1),
+                ("tiktok_follow", 1),
+            ],
+        )
+
+    def test_retransmitted_tiktok_activity_id_does_not_double_count(self) -> None:
+        payload = {
+            "type": "tiktok",
+            "event": "liked",
+            "chatname": "Fan",
+            "id": "same-like-event",
+        }
+        self.server.submit(payload)
+        self.server.submit(payload)
+
+        updates = self.server.drain_telemetry()
+        self.assertEqual([(item.kind, item.value) for item in updates], [("tiktok_like", 1)])
+
     def test_rejects_wrong_path_without_processing_body(self) -> None:
         status, response = post(
             self.host,

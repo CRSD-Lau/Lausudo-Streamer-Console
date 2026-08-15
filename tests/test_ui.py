@@ -461,6 +461,25 @@ class PortraitWindowTests(unittest.TestCase):
             self.window.twitch_connection.dot.property("state"), "disconnected"
         )
 
+    def test_live_audience_strip_formats_counts_and_preserves_unknowns(self) -> None:
+        self.window.update_live_metrics(
+            {
+                "tiktok_viewers": 128,
+                "tiktok_follows": 12,
+                "tiktok_likes": 3400,
+                "twitch_viewers": None,
+            }
+        )
+        self.application.processEvents()
+
+        self.assertEqual(self.window.tiktok_viewers_metric.value.text(), "128")
+        self.assertEqual(self.window.tiktok_follows_metric.value.text(), "12")
+        self.assertEqual(self.window.tiktok_likes_metric.value.text(), "3.4K")
+        self.assertEqual(self.window.twitch_viewers_metric.value.text(), "—")
+        self.assertEqual(
+            self.window.tiktok_likes_metric.value.property("state"), "active"
+        )
+
     def test_buttons_emit_shared_control_requests_without_optimistic_state(self) -> None:
         events: list[str] = []
         self.window.brb_requested.connect(lambda: events.append("brb"))

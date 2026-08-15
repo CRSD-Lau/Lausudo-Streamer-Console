@@ -23,8 +23,9 @@ from streamer_console.ui import MainWindow, ensure_application_theme
 
 
 class FakeIngest:
-    def __init__(self, messages=None) -> None:
+    def __init__(self, messages=None, telemetry=None) -> None:
         self.messages = list(messages or [])
+        self.telemetry = list(telemetry or [])
         self.started = 0
         self.stopped = 0
 
@@ -35,6 +36,11 @@ class FakeIngest:
     def drain(self, max_items=200):
         batch = self.messages[:max_items]
         del self.messages[:max_items]
+        return batch
+
+    def drain_telemetry(self, max_items=256):
+        batch = self.telemetry[:max_items]
+        del self.telemetry[:max_items]
         return batch
 
     def stop(self):
@@ -164,6 +170,26 @@ class StreamerConsoleRuntimeTests(unittest.TestCase):
             ["eventsub:official"],
         )
 
+    def test_tiktok_telemetry_updates_running_counts_without_chat_rows(self) -> None:
+        from streamer_console.telemetry import TelemetryUpdate
+
+        self.ingest.telemetry.extend(
+            [
+                TelemetryUpdate("tiktok_viewers", 31),
+                TelemetryUpdate("tiktok_follow", 1),
+                TelemetryUpdate("tiktok_like", 5),
+                TelemetryUpdate("tiktok_like", 1),
+            ]
+        )
+
+        self.runtime._drain_messages()
+        self.application.processEvents()
+
+        self.assertEqual(self.window.model.rowCount(), 0)
+        self.assertEqual(self.window.tiktok_viewers_metric.value.text(), "31")
+        self.assertEqual(self.window.tiktok_follows_metric.value.text(), "1")
+        self.assertEqual(self.window.tiktok_likes_metric.value.text(), "6")
+
     def test_obs_snapshot_is_authoritative_for_brb_and_vertical_output(self) -> None:
         self.obs.statuses.append(
             ObsStatus(
@@ -186,6 +212,22 @@ class StreamerConsoleRuntimeTests(unittest.TestCase):
         self.assertEqual(self.window._brb_state, "brb")
         self.assertEqual(self.window.vertical_metric.value.text(), "ON")
         self.assertEqual(self.window.main_scene.text(), "BRB - Main")
+
+    def test_new_obs_stream_session_resets_running_activity_totals(self) -> None:
+        self.runtime._live_metrics["tiktok_follows"] = 7
+        self.runtime._live_metrics["tiktok_likes"] = 250
+        self.obs.statuses.append(
+            ObsStatus(connected=True, connection_state="connected", streaming=False)
+        )
+        self.runtime._drain_obs()
+        self.obs.statuses.append(
+            ObsStatus(connected=True, connection_state="connected", streaming=True)
+        )
+        self.runtime._drain_obs()
+        self.application.processEvents()
+
+        self.assertEqual(self.window.tiktok_follows_metric.value.text(), "0")
+        self.assertEqual(self.window.tiktok_likes_metric.value.text(), "0")
 
     def test_f1_invokes_bridge_without_optimistically_changing_brb_state(self) -> None:
         self.window.set_brb_state("live")

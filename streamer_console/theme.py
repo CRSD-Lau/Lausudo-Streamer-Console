@@ -89,11 +89,27 @@ QLabel#sectionTitle {{
     font-weight: 650;
 }}
 QFrame#hairline {{ background: {COLORS.line}; max-height: 1px; }}
-QFrame#connectionStrip, QFrame#streamStatusStrip {{
+QFrame#connectionStrip, QFrame#streamStatusStrip, QFrame#audienceStrip {{
     background: {COLORS.panel};
     border: 1px solid {COLORS.line};
     border-radius: 9px;
 }}
+QWidget#audienceMetric {{ background: transparent; }}
+QFrame#audienceDivider {{ color: {COLORS.line}; }}
+QLabel#audienceCaption {{
+    font-family: "{DISPLAY_FONT}";
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 1px;
+    color: {COLORS.muted};
+}}
+QLabel#audienceValue {{
+    font-family: "{DISPLAY_FONT}";
+    font-size: 19px;
+    font-weight: 700;
+    color: {COLORS.muted};
+}}
+QLabel#audienceValue[state="active"] {{ color: {COLORS.teal}; }}
 QWidget#connectionBadge {{ background: transparent; }}
 QLabel#connectionName {{
     font-family: "{DISPLAY_FONT}";

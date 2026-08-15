@@ -19,6 +19,8 @@ Twitch EventSub ─ follows/subs/resubs/gifts/raids/Bits/rewards ─────
 
 Stream Info control ─ official Twitch Helix API ─ title + category
 
+Audience pulse ─ TikTok viewer/follow/like telemetry + Twitch Get Streams
+
 OBS WebSocket + Aitum vendor API ─ read-only status ────────────────┘
 
 BRB button ─ F1 ─ existing AutoHotkey/privacy controller
@@ -41,6 +43,14 @@ local POST transport has no persistent connection, a platform shows
 seconds; Social Stream Ninja/browser owns upstream reconnection.
 Teal status dots mean the local collector is ready or has recently received
 chat. Reconnecting remains amber and disconnected remains red.
+
+The compact audience pulse shows current TikTok viewers, new TikTok follows
+this stream, captured TikTok like activity this stream, and the
+current Twitch viewer count. Twitch refreshes through the official API about
+every 15 seconds. TikTok figures are best-effort telemetry from the open LIVE
+page; they do not add raw like/viewer notices back into chat. Follow/like totals
+reset when OBS transitions from stopped to streaming (or begin at console
+launch when the console attaches mid-stream).
 
 ## Requirements
 
@@ -69,6 +79,9 @@ http://127.0.0.1:17840/ingest/socialstream
 
 Keep Twitch chat/pop-out chat open. While TikTok is live, keep
 `https://www.tiktok.com/@lausudo/live` open with its LIVE chat available.
+In Social Stream Ninja, enable **Show viewer count per source** and **Show
+TikTok likes in main chat/events**. The console diverts those records into its
+counter strip, so they remain absent from the readable chat feed.
 Social Stream browser authentication remains in the browser. The optional
 official Twitch connection stores its refresh/access token encrypted for the
 current Windows user with DPAPI; it stores no cookies, client secret, password,
