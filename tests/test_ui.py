@@ -325,6 +325,45 @@ class PortraitWindowTests(unittest.TestCase):
                     self.window.discord_button.width(),
                 )
 
+    def test_short_wide_layout_prioritizes_chat_for_shared_portrait_monitor(self) -> None:
+        """A top-screen snap should keep the feed useful beside Discord."""
+
+        self.window.resize(1080, 650)
+        self.window.show()
+        pump_events()
+
+        self.assertFalse(self.window._compact_layout)
+        self.assertTrue(self.window._short_layout)
+        self.assertGreaterEqual(self.window.chat_view.height(), 270)
+        self.assertGreaterEqual(self.window.brb_button.height(), 58)
+        self.assertGreaterEqual(self.window.discord_button.height(), 58)
+        self.assertEqual(self.window.status_strip.height(), 66)
+        self.assertEqual(self.window.spotify_panel.height(), 52)
+
+        central = self.window.centralWidget()
+        for widget in (
+            self.window.chat_view,
+            self.window.status_strip,
+            self.window.brb_button,
+            self.window.discord_button,
+        ):
+            top_left = widget.mapTo(central, QPoint(0, 0))
+            self.assertTrue(
+                central.rect().contains(QRect(top_left, widget.size())),
+                f"{widget.objectName() or type(widget).__name__} escaped the window",
+            )
+
+        # Qt's offscreen screen is only 800 px wide once a window is shown, so
+        # drive the responsive method with the real monitor width after raising
+        # the height. The initial 1080x650 assertions above still exercise the
+        # normal resize event path.
+        self.window.resize(self.window.width(), 900)
+        self.window._update_responsive_layout(1080)
+        self.assertFalse(self.window._short_layout)
+        self.assertEqual(self.window.header.height(), 76)
+        self.assertEqual(self.window.status_strip.height(), 105)
+        self.assertEqual(self.window.spotify_panel.height(), 64)
+
     def test_restore_keeps_native_frame_inside_available_work_area(self) -> None:
         self.window.show()
         pump_events()
@@ -595,9 +634,75 @@ class PortraitWindowTests(unittest.TestCase):
         dialog.update_button.click()
         pump_events()
 
-        self.assertEqual(dialog.status.text(), "CONNECTED AS LAUSUDO")
+        self.assertEqual(dialog.status.text(), "CONNECTED AS LAUSUDO · SAVED")
+        self.assertIn("should not need to connect again", dialog.guidance.text())
+        self.assertTrue(dialog.stream_title.isEnabled())
+        self.assertTrue(dialog.category.isEnabled())
+        self.assertTrue(dialog.refresh_button.isEnabled())
+        self.assertTrue(dialog.update_button.isEnabled())
         self.assertEqual(dialog.stream_title.text(), "ICC tonight")
         self.assertEqual(requested, [("ICC tonight", "World of Warcraft")])
+        dialog.close()
+
+    def test_stream_info_dialog_explains_disconnected_and_waiting_states(self) -> None:
+        dialog = TwitchStreamInfoDialog("client-id")
+        self.assertFalse(dialog.stream_title.isEnabled())
+        self.assertFalse(dialog.update_button.isEnabled())
+
+        dialog.apply_update(
+            {
+                "kind": "status",
+                "payload": {"connected": False, "state": "authorization_required"},
+            }
+        )
+        self.assertEqual(dialog.status.text(), "TWITCH NOT CONNECTED")
+        self.assertIn("browser will open", dialog.guidance.text())
+        self.assertEqual(dialog.connect_button.text(), "CONNECT TWITCH")
+
+        with patch("streamer_console.ui.QDesktopServices.openUrl", return_value=True):
+            dialog.apply_update(
+                {
+                    "kind": "device_code",
+                    "payload": {
+                        "user_code": "ABCD1234",
+                        "verification_url": "https://www.twitch.tv/activate",
+                    },
+                }
+            )
+        dialog.apply_update(
+            {
+                "kind": "status",
+                "payload": {"connected": False, "state": "waiting_for_authorization"},
+            }
+        )
+        self.assertEqual(dialog.status.text(), "WAITING FOR TWITCH APPROVAL")
+        self.assertIn("Enter code:  ABCD1234", dialog.authorization.text())
+        self.assertFalse(dialog.connect_button.isEnabled())
+        self.assertFalse(dialog.client_id.isEnabled())
+        dialog.close()
+
+    def test_stream_info_dialog_explains_client_id_and_secure_storage_errors(self) -> None:
+        dialog = TwitchStreamInfoDialog()
+        dialog.apply_update(
+            {
+                "kind": "status",
+                "payload": {"connected": False, "state": "needs_client_id"},
+            }
+        )
+        self.assertEqual(dialog.status.text(), "SETUP REQUIRED · CLIENT ID NEEDED")
+        self.assertIn("Do not enter a client secret", dialog.guidance.text())
+
+        dialog.apply_update(
+            {
+                "kind": "error",
+                "payload": {
+                    "message": "Windows Credential Manager could not save the Twitch authorization"
+                },
+            }
+        )
+        self.assertEqual(dialog.connect_button.text(), "TRY CONNECTION AGAIN")
+        self.assertIn("could not save it securely", dialog.guidance.text())
+        self.assertFalse(dialog.update_button.isEnabled())
         dialog.close()
 
     def test_backend_window_settings_round_trip_hooks(self) -> None:

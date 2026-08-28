@@ -29,6 +29,7 @@ from .config import (
     WindowSettings,
 )
 from .controls import ControlBridge, ControlResult
+from .hotkey_helper import HotkeyHelperManager
 from .ingest import SocialStreamIngestServer
 from .logging_setup import configure_logging
 from .models import ChatPreferences, ConnectionState, Platform
@@ -148,6 +149,7 @@ class StreamerConsoleRuntime(QObject):
         ingest_server: SocialStreamIngestServer | None = None,
         obs_monitor: ObsMonitor | None = None,
         control_bridge: ControlBridge | None = None,
+        hotkey_helper: HotkeyHelperManager | None = None,
         twitch_service: TwitchService | None = None,
         spotify_service: SpotifyService | None = None,
         session_tracker: SessionTracker | None = None,
@@ -168,6 +170,7 @@ class StreamerConsoleRuntime(QObject):
         )
         self.obs_monitor = obs_monitor or ObsMonitor(self.config.obs)
         self.control_bridge = control_bridge or ControlBridge()
+        self.hotkey_helper = hotkey_helper or HotkeyHelperManager()
         self.twitch_service = twitch_service or TwitchService(
             self.config.twitch, event_sink=getattr(self.ingest_server, "submit", None)
         )
@@ -280,6 +283,14 @@ class StreamerConsoleRuntime(QObject):
             self._simulation_timer.start()
             self._emit_simulated_message()
             return
+
+        try:
+            helper_ready = self.hotkey_helper.start()
+        except Exception as exc:
+            helper_ready = False
+            LOGGER.error("AutoHotkey helper startup failed type=%s", type(exc).__name__)
+        if not helper_ready:
+            LOGGER.warning("F1/F2 helper is unavailable; stream controls may not work")
 
         self.spotify_service.start()
         self._spotify_timer.start()
@@ -692,6 +703,12 @@ class StreamerConsoleRuntime(QObject):
                 self.session_tracker.save(end=True)
             except OSError:
                 LOGGER.warning("Final session summary save failed")
+            try:
+                self.hotkey_helper.stop()
+            except Exception as exc:
+                LOGGER.warning(
+                    "AutoHotkey helper shutdown failed type=%s", type(exc).__name__
+                )
         LOGGER.info("Streamer Console stopped")
 
 

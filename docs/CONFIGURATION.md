@@ -80,8 +80,11 @@ It is not represented by a Streamer Console setting.
 | `enabled` | `true` | Enables the optional official Twitch service. |
 | `client_id` | empty | Public Twitch application Client ID. Not a secret. |
 
-Access and refresh tokens are stored separately in a DPAPI-encrypted file. A
-client secret and redirect URL are not used by the Device Code flow.
+Access and refresh tokens are stored separately in Windows Credential Manager
+for the current Windows user. Existing DPAPI-encrypted token files remain
+readable as a compatibility fallback. Tokens are never written to the ordinary
+JSON configuration. A client secret and redirect URL are not used by the Device
+Code flow.
 
 ## Logging
 

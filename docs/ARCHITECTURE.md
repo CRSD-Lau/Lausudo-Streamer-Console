@@ -33,7 +33,8 @@ Spotify panel ─ Windows GSMTC session for Spotify only ─ previous/play-pause
 Social Stream Ninja owns TikTok browser-chat collection and authentication.
 Twitch chat uses the official EventSub WebSocket once authorized, with the
 Social Stream Twitch pop-out retained as a fallback. The console never reads
-browser cookies. Twitch Device Code tokens are encrypted with Windows DPAPI.
+browser cookies. Twitch Device Code tokens are protected by Windows Credential
+Manager, with legacy per-user DPAPI file compatibility for existing installs.
 
 The preferred transport is Social Stream Ninja's **Send all to POST server** option, pointed at:
 
@@ -89,8 +90,14 @@ OBS failure changes only the OBS status area; chat stays available. Reconnection
 
 The console intentionally contains no second copy of BRB or Discord logic. Its buttons emit the same global F1/F2 keys as the keyboard:
 
-- F1 is intercepted by the existing AutoHotkey helper and invokes `C:\Projects\OBS-Tools\PrivacyToggle\PrivacyToggle.ps1`.
+- F1 is intercepted by the existing AutoHotkey helper and invokes `D:\Projects\OBS-Tools\PrivacyToggle\PrivacyToggle.ps1`.
 - F2 is intercepted by the same helper and invokes Discord's native Toggle Mute shortcut.
+
+The application lifecycle manager checks for that exact `.ahk` command line at
+startup. If absent, it launches AutoHotkey directly and owns that child process;
+normal application shutdown stops only the owned child. A helper that predates
+the console is reused without being terminated. Simulation mode never launches
+the helper.
 
 The BRB button state is derived from the actual main and Aitum vertical scenes. A mixed scene state is shown as a warning rather than guessed. Discord does not expose a supported local mute-state API in this setup, so the console reports that the toggle was sent but does not fabricate a muted/unmuted state.
 
@@ -122,6 +129,8 @@ Configuration is written atomically. Logs rotate and record lifecycle/connection
 ## Window integration
 
 Normal framed mode keeps the native Windows non-client frame. Windows therefore owns edge resizing, the maximize button, and Windows 11 Snap Layouts shown when the maximize button is hovered. Restored window geometry is fitted to the selected display's available work area so its title bar and resize frame remain reachable.
+
+The interface responds to both width and height. When the console occupies a short, wide Snap region above another application, it preserves every operational control but reduces fixed dashboard chrome: Spotify remains a 44-pixel-target transport, collector and audience state stay visible, OBS scenes remain named, and BRB/Discord become compact command bars. The reclaimed height belongs to the chronological chat and alert feed. Full-height portrait mode retains the more spacious presentation.
 
 Borderless mode deliberately removes the native frame for a clean presentation. Without that frame there are no native resize edges, maximize-button hover target, or Windows 11 Snap Layouts. Returning to normal framed mode restores those Windows features; borderless and always-on-top remain independent preferences.
 

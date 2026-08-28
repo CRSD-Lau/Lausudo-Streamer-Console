@@ -118,6 +118,19 @@ class FakeControls:
         )
 
 
+class FakeHotkeyHelper:
+    def __init__(self) -> None:
+        self.started = 0
+        self.stopped = 0
+
+    def start(self) -> bool:
+        self.started += 1
+        return True
+
+    def stop(self) -> None:
+        self.stopped += 1
+
+
 def message(sequence: int, platform: str, text: str) -> NormalizedMessage:
     return NormalizedMessage(
         sequence=sequence,
@@ -152,6 +165,7 @@ class StreamerConsoleRuntimeTests(unittest.TestCase):
         self.ingest = FakeIngest()
         self.obs = FakeObsMonitor()
         self.controls = FakeControls()
+        self.hotkey_helper = FakeHotkeyHelper()
         self.window = MainWindow(persist_settings=False, restore_geometry=False)
         self.twitch = FakeTwitch()
         self.spotify = FakeSpotify()
@@ -163,6 +177,7 @@ class StreamerConsoleRuntimeTests(unittest.TestCase):
             ingest_server=self.ingest,
             obs_monitor=self.obs,
             control_bridge=self.controls,
+            hotkey_helper=self.hotkey_helper,
             twitch_service=self.twitch,
             spotify_service=self.spotify,
             session_tracker=SessionTracker(Path(self.temp.name) / "sessions"),
@@ -366,6 +381,8 @@ class StreamerConsoleRuntimeTests(unittest.TestCase):
 
         self.assertEqual(self.ingest.stopped, 1)
         self.assertEqual(self.obs.stopped, 1)
+        self.assertEqual(self.hotkey_helper.started, 1)
+        self.assertEqual(self.hotkey_helper.stopped, 1)
         self.assertTrue(self.store.path.exists())
 
 
@@ -379,6 +396,7 @@ class SimulationAndMappingTests(unittest.TestCase):
             ingest = FakeIngest()
             obs = FakeObsMonitor()
             controls = FakeControls()
+            hotkey_helper = FakeHotkeyHelper()
             window = MainWindow(persist_settings=False, restore_geometry=False)
             runtime = StreamerConsoleRuntime(
                 self.application,
@@ -388,6 +406,7 @@ class SimulationAndMappingTests(unittest.TestCase):
                 ingest_server=ingest,
                 obs_monitor=obs,
                 control_bridge=controls,
+                hotkey_helper=hotkey_helper,
                 simulate=True,
             )
             runtime.start()
@@ -399,6 +418,8 @@ class SimulationAndMappingTests(unittest.TestCase):
             self.assertEqual(obs.started, 0)
             self.assertEqual(controls.brb_calls, 0)
             self.assertEqual(controls.discord_calls, 0)
+            self.assertEqual(hotkey_helper.started, 0)
+            self.assertEqual(hotkey_helper.stopped, 0)
             self.assertGreaterEqual(window.model.rowCount(), 1)
             self.assertFalse(window.brb_button.isEnabled())
             self.assertFalse(window.discord_button.isEnabled())

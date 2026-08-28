@@ -558,6 +558,13 @@ class TwitchStreamInfoDialog(QDialog):
         self.status.setObjectName("twitchAuthStatus")
         self.status.setWordWrap(True)
         root.addWidget(self.status)
+        self.guidance = QLabel(
+            "Paste your Twitch application Client ID, then choose Connect Twitch. "
+            "This connection is normally required only once."
+        )
+        self.guidance.setObjectName("dialogDetail")
+        self.guidance.setWordWrap(True)
+        root.addWidget(self.guidance)
 
         auth_label = QLabel("ONE-TIME TWITCH CONNECTION")
         auth_label.setObjectName("settingSection")
@@ -625,6 +632,72 @@ class TwitchStreamInfoDialog(QDialog):
             )
         )
         self.category.lineEdit().textEdited.connect(self._category_edited)
+        self._connected = False
+        self._set_broadcast_controls_enabled(False)
+
+    def _set_broadcast_controls_enabled(self, enabled: bool) -> None:
+        self.stream_title.setEnabled(enabled)
+        self.category.setEnabled(enabled)
+        self.refresh_button.setEnabled(enabled)
+        self.update_button.setEnabled(enabled)
+
+    def _set_connection_state(
+        self,
+        state: str,
+        *,
+        connected: bool = False,
+        account: str = "",
+    ) -> None:
+        self._connected = connected
+        normalized = state.strip().casefold()
+        if connected:
+            account_label = f" AS {account.upper()}" if account else ""
+            self.status.setText(f"CONNECTED{account_label} · SAVED")
+            self.guidance.setText(
+                "Ready. Twitch authorization is stored securely in Windows Credential Manager "
+                "and refreshes automatically. You should not need to connect again."
+            )
+            self.connect_button.setText("RECONNECT / CHANGE ACCOUNT")
+            self.connect_button.setEnabled(True)
+            self.client_id.setEnabled(True)
+            self.developer_button.setEnabled(True)
+            self.authorization.hide()
+        elif normalized == "waiting_for_authorization":
+            self.status.setText("WAITING FOR TWITCH APPROVAL")
+            self.guidance.setText(
+                "Complete the three steps in the teal box below. Keep this window open while "
+                "Twitch confirms the code."
+            )
+            self.connect_button.setText("WAITING FOR APPROVAL…")
+            self.connect_button.setEnabled(False)
+            self.client_id.setEnabled(False)
+            self.developer_button.setEnabled(False)
+        elif normalized == "needs_client_id":
+            self.status.setText("SETUP REQUIRED · CLIENT ID NEEDED")
+            self.guidance.setText(
+                "Choose Get Client ID to open Twitch's developer console, copy the "
+                "public Client ID into the field, then choose Connect Twitch. Do not "
+                "enter a client secret."
+            )
+            self.connect_button.setText("CONNECT TWITCH")
+            self.connect_button.setEnabled(True)
+            self.client_id.setEnabled(True)
+            self.developer_button.setEnabled(True)
+            self.authorization.hide()
+        else:
+            self.status.setText("TWITCH NOT CONNECTED")
+            self.guidance.setText(
+                "Choose Connect Twitch. Your browser will open Twitch's activation page and this "
+                "window will show the code to approve. This is normally a one-time step."
+            )
+            self.connect_button.setText("CONNECT TWITCH")
+            self.connect_button.setEnabled(True)
+            self.client_id.setEnabled(True)
+            self.developer_button.setEnabled(True)
+            self.authorization.hide()
+        self._set_broadcast_controls_enabled(connected)
+        self.status.setProperty("state", "connected" if connected else "warning")
+        repolish(self.status)
 
     @Slot(str)
     def _category_edited(self, text: str) -> None:
@@ -638,14 +711,17 @@ class TwitchStreamInfoDialog(QDialog):
         if kind == "status":
             connected = bool(_value(payload, "connected", default=False))
             account = str(_value(payload, "account", default="") or "")
-            state = str(_value(payload, "state", default="") or "").replace("_", " ").upper()
-            self.status.setText(f"CONNECTED AS {account.upper()}" if connected and account else state)
-            self.status.setProperty("state", "connected" if connected else "warning")
-            repolish(self.status)
+            state = str(_value(payload, "state", default="") or "")
+            self._set_connection_state(state, connected=connected, account=account)
         elif kind == "device_code":
             code = str(_value(payload, "user_code", default="") or "")
             url = str(_value(payload, "verification_url", default="") or "")
-            self.authorization.setText(f"Enter code  {code}  at {url}")
+            self.authorization.setText(
+                f"1. Twitch activation page opened in your browser\n"
+                f"2. Enter code:  {code}\n"
+                f"3. Approve access, then return here\n\n"
+                f"If the browser did not open: {url}"
+            )
             self.authorization.show()
             if url:
                 QDesktopServices.openUrl(QUrl(url))
@@ -670,7 +746,33 @@ class TwitchStreamInfoDialog(QDialog):
         elif kind in {"updated", "error"}:
             message = str(_value(payload, "message", default="") or "")
             self.status.setText(message.upper())
-            self.status.setProperty("state", "connected" if kind == "updated" else "warning")
+            if kind == "updated":
+                self.guidance.setText(
+                    "Twitch accepted the title and category. The saved connection remains active."
+                )
+            elif (
+                "authorization" in message.casefold()
+                or "credential manager" in message.casefold()
+            ):
+                self.guidance.setText(
+                    "Twitch approval finished, but Windows could not save it securely. Choose "
+                    "Connect Twitch to try again; do not place tokens in a config file."
+                )
+                self.authorization.hide()
+                self.connect_button.setText("TRY CONNECTION AGAIN")
+                self.connect_button.setEnabled(True)
+                self.client_id.setEnabled(True)
+                self.developer_button.setEnabled(True)
+                self._set_broadcast_controls_enabled(False)
+                self._connected = False
+            else:
+                self.guidance.setText(
+                    "The requested Twitch action did not complete. Review the message above, "
+                    "correct the indicated field, and try again."
+                )
+            self.status.setProperty(
+                "state", "connected" if kind == "updated" and self._connected else "warning"
+            )
             repolish(self.status)
 
 
@@ -686,13 +788,13 @@ class SpotifyPanel(QFrame):
         self.setObjectName("spotifyPanel")
         self.setFixedHeight(64)
         self.setMaximumWidth(480)
-        row = QHBoxLayout(self)
-        row.setContentsMargins(13, 8, 13, 8)
-        row.setSpacing(11)
-        mark = QLabel("♫")
-        mark.setObjectName("spotifyMark")
-        mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mark.setFixedSize(42, 42)
+        self._row = QHBoxLayout(self)
+        self._row.setContentsMargins(13, 8, 13, 8)
+        self._row.setSpacing(11)
+        self.mark = QLabel("♫")
+        self.mark.setObjectName("spotifyMark")
+        self.mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.mark.setFixedSize(42, 42)
         copy = QVBoxLayout()
         copy.setSpacing(1)
         self.kicker = QLabel("SPOTIFY · LOCAL")
@@ -713,8 +815,8 @@ class SpotifyPanel(QFrame):
         self.progress.setTextVisible(False)
         self.progress.setFixedHeight(3)
         copy.addWidget(self.progress)
-        row.addWidget(mark)
-        row.addLayout(copy, 1)
+        self._row.addWidget(self.mark)
+        self._row.addLayout(copy, 1)
         self.previous = QToolButton()
         self.previous.setText("◀◀")
         self.toggle = QToolButton()
@@ -730,10 +832,18 @@ class SpotifyPanel(QFrame):
             button.setAccessibleName(name)
             button.setToolTip(name)
             button.setEnabled(False)
-            row.addWidget(button)
+            self._row.addWidget(button)
         self.previous.clicked.connect(self.previous_requested)
         self.toggle.clicked.connect(self.play_pause_requested)
         self.next_track.clicked.connect(self.next_requested)
+
+    def set_dense(self, dense: bool) -> None:
+        """Keep the playback remote usable without consuming chat height."""
+
+        self.setFixedHeight(52 if dense else 64)
+        margin = 5 if dense else 8
+        self._row.setContentsMargins(10 if dense else 13, margin, 10 if dense else 13, margin)
+        self._row.setSpacing(8 if dense else 11)
 
     def apply_status(self, payload: Mapping[str, Any]) -> None:
         available = bool(payload.get("available", False))
@@ -904,17 +1014,17 @@ class MainWindow(QMainWindow):
         root = QWidget()
         root.setObjectName("consoleRoot")
         self.setCentralWidget(root)
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(22, 16, 22, 16)
-        layout.setSpacing(9)
+        self.root_layout = QVBoxLayout(root)
+        self.root_layout.setContentsMargins(22, 16, 22, 16)
+        self.root_layout.setSpacing(9)
 
-        header = QWidget()
-        header.setFixedHeight(76)
-        header_layout = QHBoxLayout(header)
+        self.header = QWidget()
+        self.header.setFixedHeight(76)
+        header_layout = QHBoxLayout(self.header)
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(13)
-        logo = QLabel()
-        logo.setFixedSize(58, 58)
+        self.logo = QLabel()
+        self.logo.setFixedSize(58, 58)
         packaged_logo = (
             Path(__file__).resolve().parent / "assets" / "lausudo-logo-600.png"
         )
@@ -926,17 +1036,18 @@ class MainWindow(QMainWindow):
         logo_path = packaged_logo if packaged_logo.exists() else source_logo
         pixmap = QPixmap(str(logo_path))
         if not pixmap.isNull():
-            logo.setPixmap(
+            self.logo.setPixmap(
                 pixmap.scaled(
-                    logo.size(),
+                    self.logo.size(),
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation,
                 )
             )
         else:
-            logo.setText("L")
-            logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        logo.setAccessibleName("Lausudo logo")
+            self.logo.setText("L")
+            self.logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._logo_pixmap = pixmap
+        self.logo.setAccessibleName("Lausudo logo")
         brand_stack = QVBoxLayout()
         brand_stack.setSpacing(0)
         kicker = QLabel("STREAMER CONSOLE")
@@ -963,16 +1074,17 @@ class MainWindow(QMainWindow):
         tally_layout.addWidget(self.live_tally_dot)
         tally_layout.addWidget(self.live_tally)
         self.spotify_panel = SpotifyPanel()
-        header_layout.addWidget(logo)
+        header_layout.addWidget(self.logo)
         header_layout.addLayout(brand_stack)
         header_layout.addWidget(self.spotify_panel, 1)
         header_layout.addWidget(self.live_tally_box)
-        layout.addWidget(header)
+        self.root_layout.addWidget(self.header)
 
-        connection_strip = QFrame()
-        connection_strip.setObjectName("connectionStrip")
-        connection_strip.setFixedHeight(54)
-        connections = QHBoxLayout(connection_strip)
+        self.connection_strip = QFrame()
+        self.connection_strip.setObjectName("connectionStrip")
+        self.connection_strip.setFixedHeight(54)
+        self.connection_layout = QHBoxLayout(self.connection_strip)
+        connections = self.connection_layout
         connections.setContentsMargins(14, 6, 14, 6)
         connections.setSpacing(12)
         self.twitch_connection = ConnectionBadge(Platform.TWITCH)
@@ -983,14 +1095,15 @@ class MainWindow(QMainWindow):
         divider.setStyleSheet(f"color: {COLORS.line};")
         connections.addWidget(divider)
         connections.addWidget(self.tiktok_connection, 1)
-        layout.addWidget(connection_strip)
+        self.root_layout.addWidget(self.connection_strip)
 
         self.audience_strip = QFrame()
         self.audience_strip.setObjectName("audienceStrip")
         self.audience_strip.setFixedHeight(58)
-        audience_layout = QHBoxLayout(self.audience_strip)
-        audience_layout.setContentsMargins(14, 5, 14, 5)
-        audience_layout.setSpacing(8)
+        self.audience_layout = QHBoxLayout(self.audience_strip)
+        self.audience_layout.setContentsMargins(14, 5, 14, 5)
+        self.audience_layout.setSpacing(8)
+        audience_layout = self.audience_layout
         self.tiktok_viewers_metric = AudienceMetric("TT VIEWERS")
         self.tiktok_follows_metric = AudienceMetric("NEW FOLLOWS")
         self.tiktok_likes_metric = AudienceMetric("TT LIKES")
@@ -1008,21 +1121,21 @@ class MainWindow(QMainWindow):
                 divider.setFrameShape(QFrame.Shape.VLine)
                 divider.setObjectName("audienceDivider")
                 audience_layout.addWidget(divider)
-        layout.addWidget(self.audience_strip)
+        self.root_layout.addWidget(self.audience_strip)
 
-        chat_header = QWidget()
-        chat_header.setFixedHeight(42)
-        chat_header_layout = QHBoxLayout(chat_header)
+        self.chat_header = QWidget()
+        self.chat_header.setFixedHeight(42)
+        chat_header_layout = QHBoxLayout(self.chat_header)
         chat_header_layout.setContentsMargins(0, 0, 0, 0)
         chat_header_layout.setSpacing(7)
         chat_title_stack = QVBoxLayout()
         chat_title_stack.setSpacing(0)
-        chat_kicker = QLabel("ONE FEED · RECEIPT ORDER")
-        chat_kicker.setObjectName("sectionKicker")
-        chat_title = QLabel("STREAM CHAT")
-        chat_title.setObjectName("sectionTitle")
-        chat_title_stack.addWidget(chat_kicker)
-        chat_title_stack.addWidget(chat_title)
+        self.chat_kicker = QLabel("ONE FEED · RECEIPT ORDER")
+        self.chat_kicker.setObjectName("sectionKicker")
+        self.chat_title = QLabel("STREAM CHAT")
+        self.chat_title.setObjectName("sectionTitle")
+        chat_title_stack.addWidget(self.chat_kicker)
+        chat_title_stack.addWidget(self.chat_title)
         chat_header_layout.addLayout(chat_title_stack)
         chat_header_layout.addStretch(1)
         self.font_down = self._reader_tool("A−", "Decrease chat font")
@@ -1042,7 +1155,7 @@ class MainWindow(QMainWindow):
         chat_header_layout.addWidget(self.font_down)
         chat_header_layout.addWidget(self.font_up)
         chat_header_layout.addWidget(self.settings_button)
-        layout.addWidget(chat_header)
+        self.root_layout.addWidget(self.chat_header)
 
         chat_container = QWidget()
         chat_layout = QVBoxLayout(chat_container)
@@ -1057,14 +1170,15 @@ class MainWindow(QMainWindow):
         self.resume_button.setAccessibleName("Resume automatic chat scrolling")
         chat_layout.addWidget(self.chat_view, 1)
         chat_layout.addWidget(self.resume_button, 0, Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(chat_container, 1)
+        self.root_layout.addWidget(chat_container, 1)
 
         self.status_strip = QFrame()
         self.status_strip.setObjectName("streamStatusStrip")
         self.status_strip.setFixedHeight(105)
-        status_layout = QVBoxLayout(self.status_strip)
-        status_layout.setContentsMargins(14, 9, 14, 8)
-        status_layout.setSpacing(5)
+        self.status_layout = QVBoxLayout(self.status_strip)
+        self.status_layout.setContentsMargins(14, 9, 14, 8)
+        self.status_layout.setSpacing(5)
+        status_layout = self.status_layout
         self.metric_layout = QGridLayout()
         self.metric_layout.setHorizontalSpacing(13)
         self.metric_layout.setVerticalSpacing(4)
@@ -1105,7 +1219,7 @@ class MainWindow(QMainWindow):
         scenes.addWidget(vertical_caption, 0, 1)
         scenes.addWidget(self.vertical_scene, 1, 1)
         status_layout.addLayout(scenes)
-        layout.addWidget(self.status_strip)
+        self.root_layout.addWidget(self.status_strip)
 
         controls = QHBoxLayout()
         controls.setSpacing(10)
@@ -1119,7 +1233,7 @@ class MainWindow(QMainWindow):
         self.discord_button.setAccessibleName("Toggle Discord microphone mute, F2")
         controls.addWidget(self.brb_button, 1)
         controls.addWidget(self.discord_button, 1)
-        layout.addLayout(controls)
+        self.root_layout.addLayout(controls)
 
     def _connect_signals(self) -> None:
         self.model.messages_added.connect(self.chat_view.notify_new_messages)
@@ -1179,6 +1293,33 @@ class MainWindow(QMainWindow):
         self._compact_layout = compact
         self._short_layout = short
 
+        if short:
+            self.root_layout.setContentsMargins(22, 10, 22, 10)
+            self.root_layout.setSpacing(6)
+            self.header.setFixedHeight(56)
+            self.connection_strip.setFixedHeight(44)
+            self.connection_layout.setContentsMargins(14, 3, 14, 3)
+            self.chat_header.setFixedHeight(40)
+            logo_size = 44
+        else:
+            self.root_layout.setContentsMargins(22, 16, 22, 16)
+            self.root_layout.setSpacing(9)
+            self.header.setFixedHeight(76)
+            self.connection_strip.setFixedHeight(54)
+            self.connection_layout.setContentsMargins(14, 6, 14, 6)
+            self.chat_header.setFixedHeight(42)
+            logo_size = 58
+        self.logo.setFixedSize(logo_size, logo_size)
+        if not self._logo_pixmap.isNull():
+            self.logo.setPixmap(
+                self._logo_pixmap.scaled(
+                    self.logo.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        self.spotify_panel.set_dense(short)
+
         for metric in self._audience_metrics:
             metric.set_compact(short)
         self.audience_strip.setFixedHeight(34 if short else 58)
@@ -1194,9 +1335,11 @@ class MainWindow(QMainWindow):
                 self.metric_layout.addWidget(metric, row, column)
             self.metric_layout.setColumnStretch(0, 1)
             self.metric_layout.setColumnStretch(1, 1)
-            self.status_strip.setFixedHeight(142 if short else 155)
+            self.status_layout.setContentsMargins(14, 6 if short else 9, 14, 6 if short else 8)
+            self.status_layout.setSpacing(3 if short else 5)
+            self.status_strip.setFixedHeight(128 if short else 155)
             control_style = (
-                "font-size: 15px; min-height: 74px; padding: 5px 10px;"
+                "font-size: 14px; min-height: 58px; padding: 4px 10px;"
                 if short
                 else "font-size: 15px; padding: 8px 10px;"
             )
@@ -1206,8 +1349,14 @@ class MainWindow(QMainWindow):
             for column, metric in enumerate(self._status_metrics):
                 self.metric_layout.addWidget(metric, 0, column)
                 self.metric_layout.setColumnStretch(column, 1)
-            self.status_strip.setFixedHeight(105)
-            control_style = ""
+            self.status_layout.setContentsMargins(14, 5 if short else 9, 14, 5 if short else 8)
+            self.status_layout.setSpacing(2 if short else 5)
+            self.status_strip.setFixedHeight(66 if short else 105)
+            control_style = (
+                "font-size: 15px; min-height: 58px; padding: 4px 14px;"
+                if short
+                else ""
+            )
             self.stream_info_button.setText("STREAM INFO")
             self.stream_info_button.setMinimumWidth(92)
 

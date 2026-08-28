@@ -29,7 +29,8 @@ keys, passwords, or viewer data in an issue.
   from OBS's configuration in memory and must never be persisted or logged.
 - Twitch OAuth uses a public-client Device Code flow. A client secret is neither
   needed nor accepted.
-- Twitch tokens must remain DPAPI-encrypted at rest and absent from logs.
+- Twitch tokens must remain protected at rest by Windows Credential Manager (or
+  the legacy per-user DPAPI fallback) and absent from logs.
 - Global key emission is restricted to F1 and F2 after the expected target/helper
   processes are detected.
 - Chat, request headers, cookies, stream keys, and authentication payloads must

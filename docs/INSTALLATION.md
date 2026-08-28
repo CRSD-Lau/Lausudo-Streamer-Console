@@ -9,9 +9,22 @@
 - Official Social Stream Ninja browser extension for TikTok LIVE collection
 - Spotify desktop app for the optional media controls
 
-The BRB/privacy and Discord buttons require the separate F1/F2 AutoHotkey helper
-used by the Lausudo stream setup. Chat and read-only status remain useful when
-that helper is absent.
+The BRB/privacy and Discord buttons require AutoHotkey v2 and the separate
+`PrivacyToggle.ahk` helper used by the Lausudo stream setup. Streamer Console
+automatically starts the helper when the app opens and stops the helper it owns
+when the app closes. An exact helper instance that was already running remains
+externally owned and is left running. Chat and read-only status remain useful
+when AutoHotkey or the helper is absent.
+
+The default helper locations are:
+
+```text
+C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe
+D:\Projects\OBS-Tools\PrivacyToggle\PrivacyToggle.ahk
+```
+
+Portable installations can set `STREAMER_CONSOLE_AHK_EXE` and
+`STREAMER_CONSOLE_AHK_SCRIPT` before launching the console.
 
 ## 2. Clone and install
 
@@ -75,7 +88,9 @@ Console** again from the Start menu.
 
 The Device Code flow does not use an OAuth redirect URL. Twitch authorization is
 needed for native Twitch chat, EventSub alerts, viewers, stream markers, and
-Stream Info updates. TikTok/Social Stream collection remains independent.
+Stream Info updates. Once **CONNECTED · SAVED** appears, Windows Credential
+Manager retains the connection and Twitch refreshes it automatically; approval
+is normally needed only once. TikTok/Social Stream collection remains independent.
 
 ## 7. Validate without production services
 
