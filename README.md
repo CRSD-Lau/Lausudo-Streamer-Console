@@ -43,7 +43,7 @@ integrations are intentionally narrow, inspectable, and local-first.
 | Raid controls | Sends the same F1 BRB/privacy and F2 Discord-mute hotkeys as the existing canonical automation—no competing state machine. |
 | Twitch Stream Info | Reads and updates the title/category through Twitch Helix using the public-client Device Code flow. |
 | Spotify remote | Uses the local Windows media session for previous, play/pause, next, metadata, and progress without changing stream audio routing. |
-| Windows-native shell | Supports native resizing, maximize, Windows 11 Snap Layouts, taskbar grouping, a branded icon, and remembered portrait placement. |
+| Windows-native shell | Supports native resizing, maximize, Windows 11 Snap Layouts, taskbar grouping, a branded icon, remembered portrait placement, and a short-window mode that gives chat and alerts priority when Discord shares the display. |
 
 ## Architecture
 
@@ -74,7 +74,8 @@ ordering, resilience, and trust-boundary details.
 - Aitum Stream Suite when vertical canvas status is required
 - Official [Social Stream Ninja](https://socialstream.ninja/) extension for TikTok collection
 - Spotify desktop app for the local media controls
-- The existing F1/F2 AutoHotkey helper if the BRB and Discord buttons are used
+- AutoHotkey v2 plus the existing `PrivacyToggle.ahk` helper when the BRB and
+  Discord buttons are used; Streamer Console starts and stops its managed copy
 
 ### Install
 
@@ -112,7 +113,10 @@ fixed clone path. See [Installation](docs/INSTALLATION.md),
 The optional official Twitch connection uses the Device Code Grant for a public
 desktop client. It needs a Twitch application **Client ID**, but never a client
 secret or OAuth redirect URL. Authorization is completed through the Twitch
-verification page and tokens are encrypted locally with Windows DPAPI.
+verification page and saved for the current Windows user in Windows Credential
+Manager. Twitch access tokens refresh automatically, so approval is normally a
+one-time step. Existing DPAPI-encrypted token files remain supported as a legacy
+fallback.
 
 The connection enables native Twitch chat, complete supported EventSub alerts,
 viewer counts, stream markers, and title/category updates. TikTok collection
@@ -124,8 +128,8 @@ continues independently through Social Stream Ninja.
   validates JSON, and never logs request bodies or headers.
 - OBS credentials are read from OBS's local configuration only in memory and are
   never copied into Streamer Console configuration.
-- Twitch access and refresh tokens are DPAPI-encrypted for the current Windows
-  user under `%LOCALAPPDATA%\NeilMitchell\StreamerConsole`.
+- Twitch access and refresh tokens are protected by Windows Credential Manager
+  for the current user and are never included in ordinary configuration or logs.
 - Logs are bounded and redact credential-shaped fields. Chat text, cookies,
   passwords, stream keys, tokens, and Social Stream session IDs are not logged.
 - Session files contain aggregate counts and marker metadata, not viewer chat.
@@ -179,7 +183,7 @@ not send global hotkeys, post production chat, or control OBS. See
 
 ## Project status and legal notice
 
-Version 1.0.0 reflects the current Lausudo production workflow. TikTok data is
+Version 1.0.1 reflects the current Lausudo production workflow. TikTok data is
 best effort because it depends on the browser LIVE page and Social Stream Ninja;
 platform changes, login gates, CAPTCHA, and throttling can affect collection.
 

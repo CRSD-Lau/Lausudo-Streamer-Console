@@ -22,7 +22,7 @@ class RepositoryQualityTests(unittest.TestCase):
         )
 
         self.assertEqual(project["project"]["version"], __version__)
-        self.assertEqual(__version__, "1.0.0")
+        self.assertEqual(__version__, "1.0.1")
 
     def test_local_documentation_links_resolve(self) -> None:
         missing: list[str] = []

@@ -3,6 +3,25 @@
 All notable changes to Lausudo Streamer Console are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.1] — 2026-08-28
+
+### Changed
+
+- Streamer Console now starts the existing F1/F2 AutoHotkey helper with the app
+  and stops only the helper process it owns during normal shutdown.
+- Twitch Stream Info now explains each setup/approval/connected state, disables
+  broadcast editing until authorization is ready, and clearly confirms when the
+  connection is securely saved.
+- Short, wide Snap layouts now compact the header, stream-status panel, Spotify
+  transport, and BRB/Discord controls so the unified chat and alert feed receives
+  more than twice the visible height in the shared portrait-monitor arrangement.
+
+### Fixed
+
+- Twitch authorization now persists through Windows Credential Manager when
+  direct DPAPI access is denied, while retaining the legacy encrypted-file reader
+  for existing installations.
+
 ## [1.0.0] — 2026-08-15
 
 ### Added
@@ -25,4 +44,5 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Credential redaction and no chat-body logging.
 - Evidence-based BRB privacy status covering microphone monitoring and Spotify routing.
 
+[1.0.1]: https://github.com/CRSD-Lau/Lausudo-Streamer-Console/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/CRSD-Lau/Lausudo-Streamer-Console/releases/tag/v1.0.0
