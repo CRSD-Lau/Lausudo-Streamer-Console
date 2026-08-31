@@ -17,7 +17,9 @@ from streamer_console.stream_workspace import (
     default_apps,
     identify_roles,
     SOCIAL_STREAM_EXTENSION_ID,
+    TIKTOK_LIVE_URL,
     TIKTOK_PLACEMENT_TASK,
+    TWITCH_CHAT_URL,
     WindowsPlatform,
 )
 
@@ -158,6 +160,27 @@ class WorkspaceTests(unittest.TestCase):
         )
         self.assertEqual(SOCIAL_STREAM_EXTENSION_ID, "cppibjhfemifednoimlblfcmjgfhfjeg")
 
+    def test_f3_opens_required_tiktok_page_and_twitch_fallback_in_default_profile(self):
+        apps = {item.key: item for item in default_apps()}
+        expectations = {
+            "tiktok_live_page": TIKTOK_LIVE_URL,
+            "twitch_chat_fallback": TWITCH_CHAT_URL,
+        }
+
+        for key, url in expectations.items():
+            app = apps[key]
+            self.assertEqual(app.executable_names, ("chrome.exe",))
+            self.assertIn("--profile-directory=Default", app.command)
+            self.assertIn(f"--app={url}", app.command)
+            self.assertTrue(app.minimize)
+            self.assertIsNone(app.zone)
+
+        self.assertEqual(TIKTOK_LIVE_URL, "https://www.tiktok.com/@lausudo/live")
+        self.assertEqual(
+            TWITCH_CHAT_URL,
+            "https://www.twitch.tv/popout/lausudo/chat?popout=",
+        )
+
     def test_tiktok_placement_routes_only_through_fixed_elevated_broker(self):
         window = Window(
             14,
@@ -220,6 +243,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn('process.ProcessName,\n                    "TikTok LIVE Studio"', broker)
         self.assertIn("$ValidateOnly", broker)
         self.assertIn("tiktok_window_found = $TikTokWindow -ne [IntPtr]::Zero", broker)
+        self.assertIn("$Target.Bottom = $Target.Top + 740", broker)
         self.assertNotIn("Start-Process", broker)
         self.assertNotIn("Invoke-Expression", broker)
         self.assertIn("$env:ProgramFiles", installer)

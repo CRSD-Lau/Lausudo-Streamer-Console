@@ -110,8 +110,9 @@ and install the fixed TikTok placement broker:
 This one-time elevation copies only `TikTokPlacementBroker.ps1` into
 `C:\Program Files\Lausudo Streamer Console`, verifies its SHA-256 hash and ACL,
 and registers an on-demand highest-run-level task. The elevated pass deliberately
-does not start the F3 listener elevated. Pressing F3 later does not prompt for
-UAC and does not elevate the normal Python controller.
+does not start the F3 listener elevated. The placement task runs silently and
+does not elevate the normal Python controller. When TikTok is closed, its own
+`highestAvailable` executable can still request UAC as F3 launches it.
 
 The installer creates **Lausudo Stream Workspace.lnk** in the current user's
 Startup folder and starts the listener immediately. The listener remains
@@ -123,13 +124,15 @@ defaults are calculated from the current Windows work areas:
 
 | Display | Placement |
 | --- | --- |
-| Top 2560x1440 production display | OBS left 1360 px; TikTok LIVE Studio right 1200 px |
+| Top 2560x1440 production display | OBS left 1360 px; TikTok LIVE Studio top-right at its supported 1200x740 px |
 | Left 1080x1920 portrait display | Streamer Console upper 38%; Discord lower 62% |
 | Bottom 2560x1440 primary gaming display | Left untouched; the previously focused window is restored |
 
-F3 opens the installed Social Stream Ninja background service page using the
-configured Chrome **Default** profile and exact official extension ID, then
-minimizes that app window. Keep the Twitch/TikTok source pages configured as
+F3 opens the installed Social Stream Ninja background service, the TikTok LIVE
+source page, and the Twitch pop-out fallback using the configured Chrome
+**Default** profile, then minimizes those dedicated collector windows. Native
+Twitch EventSub remains the primary Twitch chat path, and the console suppresses
+browser copies while it is healthy. Keep Social Stream Ninja configured as
 described in [Social Stream Ninja setup](SOCIAL_STREAM_SETUP.md). Spotify opens
 through the installed Microsoft Store package and is minimized. Voicemeeter is
 never launched or configured; if its window is already open, the window is
@@ -139,8 +142,8 @@ Safety behavior:
 
 - Existing application windows are reused; F3 never closes, restarts, or
   deliberately duplicates an application.
-- TikTok LIVE Studio requests elevated Windows integrity and a minimum
-  1200-pixel width. The protected broker places only that existing window; it
+- TikTok LIVE Studio requests elevated Windows integrity and enforces a
+  1200-by-740-pixel window. The protected broker places only that existing window; it
   cannot launch software or accept arbitrary commands. Without the broker, F3
   exits safely and logs the missing scheduled-task result.
 - Discord may restore its own saved geometry after startup. F3 waits for that

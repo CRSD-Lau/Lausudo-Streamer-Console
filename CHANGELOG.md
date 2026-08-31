@@ -3,6 +3,19 @@
 All notable changes to Lausudo Streamer Console are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Center the READY/LIVE/STANDBY label within its status control while retaining
+  the independent teal state dot at the left edge.
+- Place TikTok LIVE Studio at its supported 1200-by-740-pixel size so its own
+  size constraint no longer makes F3 report a false placement failure and beep.
+- Open and minimize the required TikTok LIVE source page and Twitch pop-out
+  fallback alongside the Social Stream Ninja background service when F3 runs.
+- Clarify that a cold TikTok launch can show TikTok's own UAC prompt while the
+  protected placement task continues to run silently.
+
 ## [1.1.0] — 2026-08-30
 
 ### Added

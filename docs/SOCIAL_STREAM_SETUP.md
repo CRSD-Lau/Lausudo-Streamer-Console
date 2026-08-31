@@ -20,11 +20,19 @@ Use only the official Social Stream Ninja project and extension:
 
 ## Twitch
 
-For ordinary chat, keep the official Twitch chat or pop-out chat open with Social Stream Ninja enabled. Use the console's **INFO** control and one-time official Twitch authorization for reliable follows, subscriptions, resubs, gifted subscriptions, raids, Bits, reward redemptions, and title/category editing. Social Stream remains the chat collector.
+F3 opens the official Twitch pop-out with Social Stream Ninja as a fallback.
+Use the console's **INFO** control and one-time official Twitch authorization for
+native chat, follows, subscriptions, resubs, gifted subscriptions, raids, Bits,
+reward redemptions, and title/category editing. Native EventSub is primary; the
+console suppresses Social Stream browser copies while EventSub chat is healthy
+and accepts the browser fallback if it disconnects.
 
 ## TikTok LIVE
 
-Open `https://www.tiktok.com/@lausudo/live` while the channel is live and enable Social Stream Ninja for that page. TikTok collection cannot be fully verified while the channel is offline. Region, login, CAPTCHA, rate limiting, and TikTok changes can affect availability.
+F3 opens `https://www.tiktok.com/@lausudo/live` in Chrome's Default profile.
+Keep Social Stream Ninja enabled for that page while the channel is live. TikTok
+collection cannot be fully verified while the channel is offline. Region,
+login, CAPTCHA, rate limiting, and TikTok changes can affect availability.
 
 Keep the chat page open and visible enough that Chromium does not discard or throttle it. Do not start a second TikTok collector, because duplicate collectors can cause duplicate messages or rate limits.
 

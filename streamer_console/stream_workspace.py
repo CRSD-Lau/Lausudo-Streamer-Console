@@ -26,6 +26,8 @@ import uuid
 LOGGER = logging.getLogger("streamer_console.stream_workspace")
 CREATE_NO_WINDOW = 0x08000000
 SOCIAL_STREAM_EXTENSION_ID = "cppibjhfemifednoimlblfcmjgfhfjeg"
+TIKTOK_LIVE_URL = "https://www.tiktok.com/@lausudo/live"
+TWITCH_CHAT_URL = "https://www.twitch.tv/popout/lausudo/chat?popout="
 TIKTOK_PLACEMENT_TASK = "Lausudo Stream Workspace TikTok Placement"
 TIKTOK_ZONE_WIDTH = 1200
 PLACEMENT_RESULT_TIMEOUT = 10.0
@@ -224,6 +226,34 @@ def default_apps() -> list[AppSpec]:
             ),
             None,
             minimize=True,
+            working_directory=str(chrome.parent),
+        ),
+        AppSpec(
+            "tiktok_live_page",
+            ("chrome.exe",),
+            ("TikTok",),
+            (
+                str(chrome),
+                "--profile-directory=Default",
+                f"--app={TIKTOK_LIVE_URL}",
+            ),
+            None,
+            minimize=True,
+            launch_timeout=20.0,
+            working_directory=str(chrome.parent),
+        ),
+        AppSpec(
+            "twitch_chat_fallback",
+            ("chrome.exe",),
+            ("Twitch",),
+            (
+                str(chrome),
+                "--profile-directory=Default",
+                f"--app={TWITCH_CHAT_URL}",
+            ),
+            None,
+            minimize=True,
+            launch_timeout=20.0,
             working_directory=str(chrome.parent),
         ),
         AppSpec(

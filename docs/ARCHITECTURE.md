@@ -150,17 +150,23 @@ and foreground restoration. It does not import the OBS client, emit application
 hotkeys, or call any stream/audio control surface. The approved executable
 allowlist is defined in `streamer_console/stream_workspace.py`.
 
-TikTok LIVE Studio runs at a higher Windows integrity level and has a 1200-pixel
-minimum width. The normal controller therefore reserves the production
-display's rightmost 1200 pixels and delegates only that one placement to a fixed
+TikTok LIVE Studio runs at a higher Windows integrity level and enforces a
+1200-by-740-pixel window. The normal controller therefore reserves the
+production display's top-right 1200-by-740-pixel area and delegates only that placement to a fixed
 scheduled task. The task runs a hash-verified broker copied into Program Files,
 accepts no executable/path/window arguments, launches nothing, finds only the
 existing TikTok LIVE Studio main window, and uses non-activating placement. The
 request/result files contain only a correlation GUID and bounded status under
-the current user's LocalAppData. No UAC prompt occurs when F3 is pressed.
+the current user's LocalAppData. The placement task itself produces no UAC
+prompt. A cold TikTok launch can still show TikTok's own UAC prompt because its
+executables declare Windows' `highestAvailable` privilege level.
 
 Chrome uses the installed Social Stream Ninja extension ID in the Default
-profile and app-window mode, then minimizes the background page. Discord is
+profile and app-window mode. F3 opens the extension background service, the
+TikTok LIVE source page required for browser collection, and the Twitch pop-out
+fallback, then minimizes those dedicated collector windows. Native Twitch
+EventSub remains primary; the console suppresses browser copies while native
+chat is healthy and accepts the fallback if EventSub disconnects. Discord is
 placed only after its startup geometry has stabilized, and the target is
 reapplied until it remains in the portrait-bottom zone.
 

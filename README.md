@@ -123,11 +123,12 @@ TikTok LIVE Studio; F3 itself and the rest of the controller remain non-elevated
 
 F3 reuses existing windows, launches only missing approved desktop applications,
 and is safe to press repeatedly. It opens the installed Social Stream Ninja
-background page in Chrome's configured Default profile, minimizes it, waits out
-Discord's saved-position restoration, and places OBS/TikTok side by side at
-1360/1200 pixels on the production display. It never starts or stops a stream,
-recording, Virtual Camera, scene, microphone, Discord mute state, or Voicemeeter
-route. See
+background page, the TikTok LIVE source page, and the Twitch pop-out fallback in
+Chrome's configured Default profile, then minimizes those collector windows. It
+waits out Discord's saved-position restoration and places OBS with TikTok LIVE
+Studio at its supported 1200-by-740-pixel size on the production display. It
+never starts or stops a stream, recording, Virtual Camera, scene, microphone,
+Discord mute state, or Voicemeeter route. See
 [Installation](docs/INSTALLATION.md#global-f3-stream-workspace) for the exact
 default layout and rollback command.
 

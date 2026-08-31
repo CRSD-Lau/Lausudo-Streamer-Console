@@ -282,7 +282,10 @@ try {
     $Target.Left = $Production.WorkArea.Right - 1200
     $Target.Top = $Production.WorkArea.Top
     $Target.Right = $Production.WorkArea.Right
-    $Target.Bottom = $Production.WorkArea.Bottom
+    # TikTok LIVE Studio 1.34 enforces a 1200x740 window. Asking it to fill
+    # the monitor makes it restore 740 px and causes strict verification to
+    # report a false placement failure even though the monitor move succeeded.
+    $Target.Bottom = $Target.Top + 740
 
     $TikTokWindow = [LausudoTikTokPlacement]::FindTikTokWindow()
     if ($ValidateOnly) {
