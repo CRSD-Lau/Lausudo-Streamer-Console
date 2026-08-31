@@ -136,8 +136,10 @@ If Chrome reports `ERR_BLOCKED_BY_CLIENT`, confirm the official Social Stream
 Ninja extension is installed and enabled in Chrome's **Default** profile. F3 uses
 the official extension ID `cppibjhfemifednoimlblfcmjgfhfjeg`; it never reads
 browser cookies. If Discord covers the console, press F3 again after updating;
-the controller now waits for Discord's saved bounds to stabilize and verifies
-the portrait-bottom placement.
+the controller chooses Discord's largest application surface, waits for its
+saved bounds to stabilize, and verifies the portrait-bottom placement. A fresh
+TikTok LIVE Studio launch can take roughly 20 seconds before placement is final;
+F3 keeps enforcing the production-monitor target through that startup window.
 
 Use the non-mutating plan command to confirm display recognition and approved
 actions:

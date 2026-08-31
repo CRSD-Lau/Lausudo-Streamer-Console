@@ -30,7 +30,7 @@ TIKTOK_LIVE_URL = "https://www.tiktok.com/@lausudo/live"
 TWITCH_CHAT_URL = "https://www.twitch.tv/popout/lausudo/chat?popout="
 TIKTOK_PLACEMENT_TASK = "Lausudo Stream Workspace TikTok Placement"
 TIKTOK_ZONE_WIDTH = 1200
-PLACEMENT_RESULT_TIMEOUT = 10.0
+PLACEMENT_RESULT_TIMEOUT = 30.0
 
 
 @dataclass(frozen=True)
@@ -353,7 +353,19 @@ def _matches(window: Window, app: AppSpec) -> bool:
 
 
 def _find_window(platform: Platform, app: AppSpec) -> Window | None:
-    return next((window for window in platform.windows() if _matches(window, app)), None)
+    matches = [window for window in platform.windows() if _matches(window, app)]
+    if not matches:
+        return None
+
+    # Electron applications can expose splash, updater, and main windows with
+    # the same process/title signature during startup. The workspace must move
+    # the real application surface, not whichever handle EnumWindows returns
+    # first.
+    def window_area(window: Window) -> int:
+        rect = platform.window_rect(window.handle)
+        return rect.width * rect.height if rect is not None else 0
+
+    return max(matches, key=window_area)
 
 
 def _wait_for_window(platform: Platform, app: AppSpec) -> Window | None:

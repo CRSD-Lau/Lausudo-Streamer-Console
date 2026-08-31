@@ -25,6 +25,9 @@ public static class LausudoTikTokPlacement
     private const int SW_RESTORE = 9;
     private const uint SWP_NOZORDER = 0x0004;
     private const uint SWP_NOACTIVATE = 0x0010;
+    private const int STARTUP_GUARD_SECONDS = 20;
+    private const int SAMPLE_INTERVAL_MS = 200;
+    private const int MAX_PLACEMENT_ATTEMPTS = 150;
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT
@@ -183,12 +186,40 @@ public static class LausudoTikTokPlacement
             && Math.Abs(actual.Bottom - expected.Bottom) <= tolerance;
     }
 
+    private static DateTime StartupGuardUntil(IntPtr window)
+    {
+        DateTime now = DateTime.UtcNow;
+        uint processId;
+        GetWindowThreadProcessId(window, out processId);
+        try
+        {
+            Process process = Process.GetProcessById((int)processId);
+            DateTime readyAt = process.StartTime.ToUniversalTime()
+                .AddSeconds(STARTUP_GUARD_SECONDS);
+            return readyAt > now ? readyAt : now;
+        }
+        catch
+        {
+            // If Windows cannot provide the elevated process start time, retain
+            // placement for the same bounded startup window conservatively.
+            return now.AddSeconds(STARTUP_GUARD_SECONDS);
+        }
+    }
+
     public static bool PlaceAndVerify(IntPtr window, RECT target)
     {
         ShowWindowAsync(window, SW_RESTORE);
+        DateTime startupGuardUntil = StartupGuardUntil(window);
         int stableSamples = 0;
-        for (int attempt = 0; attempt < 20; attempt++)
+        for (int attempt = 0; attempt < MAX_PLACEMENT_ATTEMPTS; attempt++)
         {
+            // TikTok may replace its top-level window while its elevated
+            // Chromium processes finish starting. Follow the current main
+            // window instead of retaining a stale handle.
+            IntPtr currentWindow = FindTikTokWindow();
+            if (currentWindow != IntPtr.Zero)
+                window = currentWindow;
+
             bool placed = SetWindowPos(
                 window,
                 IntPtr.Zero,
@@ -201,12 +232,12 @@ public static class LausudoTikTokPlacement
             if (!placed)
                 return false;
 
-            Thread.Sleep(200);
+            Thread.Sleep(SAMPLE_INTERVAL_MS);
             RECT actual;
             if (GetWindowRect(window, out actual) && CloseEnough(actual, target))
             {
                 stableSamples++;
-                if (stableSamples >= 4)
+                if (stableSamples >= 4 && DateTime.UtcNow >= startupGuardUntil)
                     return true;
             }
             else
