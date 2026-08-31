@@ -20,7 +20,8 @@ helper owns BRB/privacy and Discord mute.
 Use Python with PySide6/Qt Widgets for the native desktop UI. Keep each integration
 behind a small bounded worker and communicate with the UI through queues/signals.
 Bind Social Stream ingestion to loopback, read OBS status without modifying it,
-use Twitch's public-client Device Code flow, store Twitch tokens with DPAPI, and
+use Twitch's public-client Device Code flow, store Twitch tokens with Windows
+Credential Manager while retaining legacy DPAPI compatibility, and
 delegate stream controls to the existing F1/F2 automation.
 
 Do not bundle a browser, Electron runtime, database, maintainer backend, or second
@@ -36,5 +37,6 @@ from a previous click.
 - TikTok collection remains best effort because it depends on the browser LIVE
   page and Social Stream Ninja.
 - BRB and Discord buttons require the external canonical helper.
-- The project is Windows-specific because it relies on DPAPI, native taskbar
+- The project is Windows-specific because it relies on Windows Credential Manager,
+  legacy DPAPI compatibility, native taskbar
   identity, Win32 input, and Windows media sessions.

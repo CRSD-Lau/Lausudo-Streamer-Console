@@ -54,7 +54,7 @@ dimensions before publishing.
 | `ui.py` | Portrait widgets, dialogs, feed rendering, controls, Windows frame behavior. |
 | `normalizer.py` | Safe text conversion, viewer-chat/event allowlist, filters, sequencing. |
 | `ingest.py` | Loopback-only Social Stream HTTP receiver and bounded queue. |
-| `twitch.py` | Device authorization, DPAPI token store, Helix, EventSub chat/alerts. |
+| `twitch.py` | Device authorization, Windows Credential Manager token store with legacy DPAPI compatibility, Helix, EventSub chat/alerts. |
 | `obs_client.py` | Read-only OBS WebSocket and Aitum status. |
 | `spotify.py` | Spotify-only Windows media-session discovery and controls. |
 | `controls.py` | Guarded F1/F2 Win32 key emission. |

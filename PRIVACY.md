@@ -26,7 +26,8 @@ It may contain:
 - user interface and integration preferences;
 - bounded rotating diagnostic logs without chat bodies or credentials;
 - aggregate-only session totals and marker metadata;
-- a Twitch token payload encrypted with Windows DPAPI for the current user.
+- a Twitch token payload protected by Windows Credential Manager for the current
+  user, with legacy DPAPI file support for existing installations.
 
 OBS's WebSocket password remains in OBS's own configuration. The application
 reads it only in memory and does not copy it into its configuration.

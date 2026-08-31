@@ -1,0 +1,865 @@
+"""Idempotent Windows workspace preparation for the Lausudo stream stack.
+
+This module deliberately manages only application windows.  It does not connect
+to OBS, send application hotkeys, or touch streaming, recording, scenes, audio,
+Virtual Camera, Discord mute state, or Voicemeeter routing.
+"""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+import ctypes
+from ctypes import wintypes
+import json
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
+from typing import Protocol, Sequence
+import uuid
+
+
+LOGGER = logging.getLogger("streamer_console.stream_workspace")
+CREATE_NO_WINDOW = 0x08000000
+SOCIAL_STREAM_EXTENSION_ID = "cppibjhfemifednoimlblfcmjgfhfjeg"
+TIKTOK_PLACEMENT_TASK = "Lausudo Stream Workspace TikTok Placement"
+TIKTOK_ZONE_WIDTH = 1200
+PLACEMENT_RESULT_TIMEOUT = 10.0
+
+
+@dataclass(frozen=True)
+class Rect:
+    left: int
+    top: int
+    right: int
+    bottom: int
+
+    @property
+    def width(self) -> int:
+        return self.right - self.left
+
+    @property
+    def height(self) -> int:
+        return self.bottom - self.top
+
+
+@dataclass(frozen=True)
+class Monitor:
+    device: str
+    bounds: Rect
+    work_area: Rect
+    primary: bool
+
+
+@dataclass(frozen=True)
+class Window:
+    handle: int
+    process_id: int
+    executable: str
+    class_name: str
+    title: str
+
+
+@dataclass(frozen=True)
+class AppSpec:
+    key: str
+    executable_names: tuple[str, ...]
+    title_terms: tuple[str, ...]
+    command: tuple[str, ...] | None
+    zone: str | None
+    launch: bool = True
+    minimize: bool = False
+    launch_timeout: float = 12.0
+    working_directory: str | None = None
+    shell_execute: bool = False
+    settle_before_place: bool = False
+    elevated_placement_task: str | None = None
+
+
+class Platform(Protocol):
+    def monitors(self) -> list[Monitor]: ...
+    def windows(self) -> list[Window]: ...
+    def launch(
+        self,
+        command: Sequence[str],
+        *,
+        working_directory: str | None = None,
+        shell_execute: bool = False,
+    ) -> None: ...
+    def place(self, handle: int, rect: Rect) -> bool: ...
+    def window_rect(self, handle: int) -> Rect | None: ...
+    def place_elevated(self, task_name: str, timeout: float) -> bool: ...
+    def minimize(self, handle: int) -> bool: ...
+
+
+def _local_root() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local")) / (
+        "NeilMitchell/StreamerConsole"
+    )
+
+
+def _setup_logging() -> None:
+    if LOGGER.handlers:
+        return
+    log_dir = _local_root() / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(
+        log_dir / "stream-workspace.log",
+        maxBytes=512_000,
+        backupCount=3,
+        encoding="utf-8",
+    )
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    LOGGER.addHandler(handler)
+    LOGGER.setLevel(logging.INFO)
+    LOGGER.propagate = False
+
+
+def _program_files() -> Path:
+    return Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+
+
+def _local_app_data() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData/Local"))
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def _first_file(candidates: Sequence[Path]) -> Path | None:
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def _tiktok_executable() -> Path:
+    root = _program_files() / "TikTok LIVE Studio"
+    versioned = sorted(
+        root.glob("*/TikTok LIVE Studio.exe"),
+        key=lambda path: path.parent.name,
+        reverse=True,
+    )
+    return _first_file([root / "TikTok LIVE Studio Launcher.exe", *versioned]) or (
+        root / "TikTok LIVE Studio Launcher.exe"
+    )
+
+
+def _pythonw_executable() -> Path:
+    current = Path(sys.executable)
+    if current.name.casefold() == "pythonw.exe" and current.is_file():
+        return current
+    local = _local_app_data() / "Programs/Python"
+    candidates = [
+        local / "Python313/pythonw.exe",
+        local / "Python311/pythonw.exe",
+        current.with_name("pythonw.exe"),
+    ]
+    return _first_file(candidates) or current
+
+
+def default_apps() -> list[AppSpec]:
+    """Return the approved application allowlist and layout assignments."""
+
+    program_files = _program_files()
+    local = _local_app_data()
+    repo = _repo_root()
+    obs = program_files / "obs-studio/bin/64bit/obs64.exe"
+    tiktok = _tiktok_executable()
+    discord_update = local / "Discord/Update.exe"
+    chrome = program_files / "Google/Chrome/Application/chrome.exe"
+    console_command = (_pythonw_executable(), repo / "run_console.pyw")
+    social_url = (
+        f"chrome-extension://{SOCIAL_STREAM_EXTENSION_ID}/background.html"
+    )
+
+    return [
+        AppSpec(
+            "streamer_console",
+            ("pythonw.exe", "python.exe"),
+            ("Lausudo Streamer Console",),
+            tuple(map(str, console_command)),
+            "portrait_top",
+            working_directory=str(repo),
+        ),
+        AppSpec(
+            "discord",
+            ("Discord.exe",),
+            ("Discord",),
+            (str(discord_update), "--processStart", "Discord.exe"),
+            "portrait_bottom",
+            working_directory=str(discord_update.parent),
+            settle_before_place=True,
+        ),
+        AppSpec(
+            "obs",
+            ("obs64.exe",),
+            ("OBS",),
+            (str(obs),),
+            "production_left",
+            launch_timeout=20.0,
+            working_directory=str(obs.parent),
+        ),
+        AppSpec(
+            "tiktok_live_studio",
+            ("TikTok LIVE Studio.exe",),
+            ("TikTok LIVE Studio", "LIVE Studio"),
+            (str(tiktok),),
+            "production_right",
+            launch_timeout=30.0,
+            working_directory=str(tiktok.parent),
+            shell_execute=True,
+            elevated_placement_task=TIKTOK_PLACEMENT_TASK,
+        ),
+        AppSpec(
+            "social_stream_ninja",
+            ("chrome.exe",),
+            ("Social Stream Ninja",),
+            (
+                str(chrome),
+                "--profile-directory=Default",
+                f"--app={social_url}",
+            ),
+            None,
+            minimize=True,
+            working_directory=str(chrome.parent),
+        ),
+        AppSpec(
+            "spotify",
+            ("Spotify.exe",),
+            (),
+            (
+                "explorer.exe",
+                "shell:AppsFolder\\SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify",
+            ),
+            None,
+            minimize=True,
+        ),
+        AppSpec(
+            "voicemeeter",
+            ("voicemeeter.exe", "voicemeeter_x64.exe", "voicemeeterpro.exe", "voicemeeterpro_x64.exe"),
+            ("Voicemeeter",),
+            None,
+            "production_right",
+            launch=False,
+            minimize=True,
+        ),
+    ]
+
+
+def identify_roles(monitors: Sequence[Monitor]) -> dict[str, Monitor]:
+    """Identify the approved three-display topology or return an empty mapping."""
+
+    gaming = next(
+        (
+            monitor
+            for monitor in monitors
+            if monitor.primary
+            and monitor.bounds.width == 2560
+            and monitor.bounds.height == 1440
+        ),
+        None,
+    )
+    if gaming is None:
+        return {}
+    production = next(
+        (
+            monitor
+            for monitor in monitors
+            if not monitor.primary
+            and monitor.bounds.width == 2560
+            and monitor.bounds.height == 1440
+            and monitor.bounds.top < gaming.bounds.top
+        ),
+        None,
+    )
+    portrait = next(
+        (
+            monitor
+            for monitor in monitors
+            if not monitor.primary
+            and monitor.bounds.width == 1080
+            and monitor.bounds.height == 1920
+            and monitor.bounds.left < gaming.bounds.left
+        ),
+        None,
+    )
+    if production is None or portrait is None:
+        return {}
+    return {"gaming": gaming, "production": production, "portrait": portrait}
+
+
+def build_zones(roles: dict[str, Monitor]) -> dict[str, Rect]:
+    production = roles["production"].work_area
+    portrait = roles["portrait"].work_area
+    production_split = production.right - TIKTOK_ZONE_WIDTH
+    portrait_split = portrait.top + round(portrait.height * 0.38)
+    return {
+        "production_left": Rect(
+            production.left, production.top, production_split, production.bottom
+        ),
+        "production_right": Rect(
+            production_split, production.top, production.right, production.bottom
+        ),
+        "portrait_top": Rect(
+            portrait.left, portrait.top, portrait.right, portrait_split
+        ),
+        "portrait_bottom": Rect(
+            portrait.left, portrait_split, portrait.right, portrait.bottom
+        ),
+    }
+
+
+def _matches(window: Window, app: AppSpec) -> bool:
+    executable = Path(window.executable).name.casefold()
+    if executable not in {name.casefold() for name in app.executable_names}:
+        return False
+    if not app.title_terms:
+        return True
+    title = window.title.casefold()
+    return any(term.casefold() in title for term in app.title_terms)
+
+
+def _find_window(platform: Platform, app: AppSpec) -> Window | None:
+    return next((window for window in platform.windows() if _matches(window, app)), None)
+
+
+def _wait_for_window(platform: Platform, app: AppSpec) -> Window | None:
+    deadline = time.monotonic() + app.launch_timeout
+    while time.monotonic() < deadline:
+        window = _find_window(platform, app)
+        if window is not None:
+            return window
+        time.sleep(0.20)
+    return None
+
+
+def _rect_close(actual: Rect | None, expected: Rect, tolerance: int = 12) -> bool:
+    if actual is None:
+        return False
+    return all(
+        abs(left - right) <= tolerance
+        for left, right in (
+            (actual.left, expected.left),
+            (actual.top, expected.top),
+            (actual.right, expected.right),
+            (actual.bottom, expected.bottom),
+        )
+    )
+
+
+def _wait_for_geometry_stable(
+    platform: Platform,
+    window: Window,
+    *,
+    timeout: float = 5.0,
+    stable_for: float = 0.8,
+) -> bool:
+    """Wait for an app's own startup restoration to stop changing its bounds."""
+
+    deadline = time.monotonic() + timeout
+    previous: Rect | None = None
+    stable_since: float | None = None
+    while time.monotonic() < deadline:
+        current = platform.window_rect(window.handle)
+        if current is None:
+            return False
+        now = time.monotonic()
+        if current == previous:
+            stable_since = stable_since or now
+            if now - stable_since >= stable_for:
+                return True
+        else:
+            previous = current
+            stable_since = now
+        time.sleep(0.20)
+    return False
+
+
+def _place_until_stable(
+    platform: Platform,
+    handle: int,
+    rect: Rect,
+    *,
+    timeout: float = 4.0,
+    stable_for: float = 0.8,
+) -> bool:
+    """Reapply placement if an app restores stale bounds after startup."""
+
+    deadline = time.monotonic() + timeout
+    stable_since: float | None = None
+    while time.monotonic() < deadline:
+        if not platform.place(handle, rect):
+            return False
+        time.sleep(0.20)
+        now = time.monotonic()
+        if _rect_close(platform.window_rect(handle), rect):
+            stable_since = stable_since or now
+            if now - stable_since >= stable_for:
+                return True
+        else:
+            stable_since = None
+    return False
+
+
+def apply_workspace(
+    platform: Platform,
+    apps: Sequence[AppSpec] | None = None,
+    *,
+    dry_run: bool = False,
+) -> tuple[bool, list[dict[str, str]]]:
+    """Prepare the approved workspace, returning success and sanitized actions."""
+
+    roles = identify_roles(platform.monitors())
+    if not roles:
+        LOGGER.error("Expected three-display topology was not found; no changes made")
+        return False, [{"app": "workspace", "action": "aborted_missing_monitors"}]
+
+    zones = build_zones(roles)
+    actions: list[dict[str, str]] = []
+    success = True
+
+    for app in apps or default_apps():
+        window = _find_window(platform, app)
+        if window is None and not app.launch:
+            actions.append({"app": app.key, "action": "not_running_skipped"})
+            continue
+        if window is None:
+            if app.command is None or not Path(app.command[0]).is_file() and app.command[0].casefold() != "explorer.exe":
+                LOGGER.error("Approved executable missing app=%s", app.key)
+                actions.append({"app": app.key, "action": "executable_missing"})
+                success = False
+                continue
+            actions.append({"app": app.key, "action": "launch"})
+            if dry_run:
+                if app.zone is not None:
+                    placement_action = f"place_{app.zone}"
+                    if app.elevated_placement_task:
+                        placement_action += "_elevated"
+                    actions.append({"app": app.key, "action": placement_action})
+                if app.minimize:
+                    actions.append({"app": app.key, "action": "minimize"})
+                continue
+            try:
+                platform.launch(
+                    app.command,
+                    working_directory=app.working_directory,
+                    shell_execute=app.shell_execute,
+                )
+                window = _wait_for_window(platform, app)
+            except OSError as exc:
+                error_code = getattr(exc, "winerror", None)
+                LOGGER.error(
+                    "Launch failed app=%s type=%s code=%s",
+                    app.key,
+                    type(exc).__name__,
+                    error_code if isinstance(error_code, int) else "unknown",
+                )
+                window = None
+            if window is None:
+                LOGGER.error("Window readiness timed out app=%s", app.key)
+                actions.append({"app": app.key, "action": "window_timeout"})
+                success = False
+                continue
+        else:
+            actions.append({"app": app.key, "action": "reuse"})
+
+        if app.zone is not None:
+            placement_action = f"place_{app.zone}"
+            if app.elevated_placement_task:
+                placement_action += "_elevated"
+            actions.append({"app": app.key, "action": placement_action})
+            if not dry_run:
+                if app.settle_before_place and not _wait_for_geometry_stable(
+                    platform, window
+                ):
+                    LOGGER.error("Window readiness did not stabilize app=%s", app.key)
+                    success = False
+                    continue
+                if app.elevated_placement_task:
+                    placed = platform.place_elevated(
+                        app.elevated_placement_task, PLACEMENT_RESULT_TIMEOUT
+                    )
+                else:
+                    placed = _place_until_stable(
+                        platform, window.handle, zones[app.zone]
+                    )
+                if not placed:
+                    LOGGER.error("Window placement failed app=%s", app.key)
+                    success = False
+        if app.minimize:
+            actions.append({"app": app.key, "action": "minimize"})
+            if not dry_run and not platform.minimize(window.handle):
+                LOGGER.error("Window minimize failed app=%s", app.key)
+                success = False
+
+    LOGGER.info("Workspace apply finished success=%s dry_run=%s", success, dry_run)
+    return success, actions
+
+
+class WindowsPlatform:
+    """Minimal Win32 adapter; no application-specific control surfaces."""
+
+    MONITORINFOF_PRIMARY = 1
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    TH32CS_SNAPPROCESS = 0x00000002
+    SW_MINIMIZE = 6
+    SW_RESTORE = 9
+    SWP_NOACTIVATE = 0x0010
+    SWP_NOZORDER = 0x0004
+
+    class _MONITORINFOEXW(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD),
+            ("rcMonitor", wintypes.RECT),
+            ("rcWork", wintypes.RECT),
+            ("dwFlags", wintypes.DWORD),
+            ("szDevice", wintypes.WCHAR * 32),
+        ]
+
+    class _PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_size_t),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.WCHAR * 260),
+        ]
+
+    def __init__(self) -> None:
+        if os.name != "nt":
+            raise OSError("Stream workspace control is Windows-only")
+        self.user32 = ctypes.WinDLL("user32", use_last_error=True)
+        self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.kernel32.OpenProcess.argtypes = (
+            wintypes.DWORD,
+            wintypes.BOOL,
+            wintypes.DWORD,
+        )
+        self.kernel32.OpenProcess.restype = wintypes.HANDLE
+        self.kernel32.QueryFullProcessImageNameW.argtypes = (
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        )
+        self.kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+        self.kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        self.kernel32.CloseHandle.restype = wintypes.BOOL
+        self.kernel32.CreateToolhelp32Snapshot.argtypes = (
+            wintypes.DWORD,
+            wintypes.DWORD,
+        )
+        self.kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        self.kernel32.Process32FirstW.argtypes = (
+            wintypes.HANDLE,
+            ctypes.POINTER(self._PROCESSENTRY32W),
+        )
+        self.kernel32.Process32FirstW.restype = wintypes.BOOL
+        self.kernel32.Process32NextW.argtypes = (
+            wintypes.HANDLE,
+            ctypes.POINTER(self._PROCESSENTRY32W),
+        )
+        self.kernel32.Process32NextW.restype = wintypes.BOOL
+        self.user32.GetMonitorInfoW.argtypes = (
+            wintypes.HMONITOR,
+            ctypes.POINTER(self._MONITORINFOEXW),
+        )
+        self.user32.GetMonitorInfoW.restype = wintypes.BOOL
+        self.user32.IsWindowVisible.argtypes = (wintypes.HWND,)
+        self.user32.IsWindowVisible.restype = wintypes.BOOL
+        self.user32.GetWindowTextLengthW.argtypes = (wintypes.HWND,)
+        self.user32.GetWindowTextLengthW.restype = ctypes.c_int
+        self.user32.GetWindowTextW.argtypes = (
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        )
+        self.user32.GetWindowTextW.restype = ctypes.c_int
+        self.user32.GetClassNameW.argtypes = (
+            wintypes.HWND,
+            wintypes.LPWSTR,
+            ctypes.c_int,
+        )
+        self.user32.GetClassNameW.restype = ctypes.c_int
+        self.user32.GetWindowThreadProcessId.argtypes = (
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.DWORD),
+        )
+        self.user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        self.user32.GetForegroundWindow.argtypes = ()
+        self.user32.GetForegroundWindow.restype = wintypes.HWND
+        self.user32.IsWindow.argtypes = (wintypes.HWND,)
+        self.user32.IsWindow.restype = wintypes.BOOL
+        self.user32.ShowWindowAsync.argtypes = (wintypes.HWND, ctypes.c_int)
+        self.user32.ShowWindowAsync.restype = wintypes.BOOL
+        self.user32.SetWindowPos.argtypes = (
+            wintypes.HWND,
+            wintypes.HWND,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.UINT,
+        )
+        self.user32.SetWindowPos.restype = wintypes.BOOL
+        self.user32.GetWindowRect.argtypes = (
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.RECT),
+        )
+        self.user32.GetWindowRect.restype = wintypes.BOOL
+        self.user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
+        self.user32.SetForegroundWindow.restype = wintypes.BOOL
+
+    @staticmethod
+    def _rect(value: wintypes.RECT) -> Rect:
+        return Rect(value.left, value.top, value.right, value.bottom)
+
+    def monitors(self) -> list[Monitor]:
+        results: list[Monitor] = []
+        callback_type = ctypes.WINFUNCTYPE(
+            wintypes.BOOL,
+            wintypes.HMONITOR,
+            wintypes.HDC,
+            ctypes.POINTER(wintypes.RECT),
+            wintypes.LPARAM,
+        )
+
+        def collect(handle, _dc, _rect, _data):
+            info = self._MONITORINFOEXW()
+            info.cbSize = ctypes.sizeof(info)
+            if self.user32.GetMonitorInfoW(handle, ctypes.byref(info)):
+                results.append(
+                    Monitor(
+                        info.szDevice,
+                        self._rect(info.rcMonitor),
+                        self._rect(info.rcWork),
+                        bool(info.dwFlags & self.MONITORINFOF_PRIMARY),
+                    )
+                )
+            return True
+
+        self.user32.EnumDisplayMonitors(None, None, callback_type(collect), 0)
+        return results
+
+    def _process_path(self, process_id: int) -> str:
+        handle = self.kernel32.OpenProcess(
+            self.PROCESS_QUERY_LIMITED_INFORMATION, False, process_id
+        )
+        if not handle:
+            return ""
+        try:
+            capacity = wintypes.DWORD(32768)
+            buffer = ctypes.create_unicode_buffer(capacity.value)
+            if self.kernel32.QueryFullProcessImageNameW(
+                handle, 0, buffer, ctypes.byref(capacity)
+            ):
+                return buffer.value
+            return ""
+        finally:
+            self.kernel32.CloseHandle(handle)
+
+    def _process_names(self) -> dict[int, str]:
+        """Enumerate executable basenames without opening elevated processes."""
+
+        invalid_handle = ctypes.c_void_p(-1).value
+        snapshot = self.kernel32.CreateToolhelp32Snapshot(self.TH32CS_SNAPPROCESS, 0)
+        if not snapshot or snapshot == invalid_handle:
+            return {}
+        names: dict[int, str] = {}
+        try:
+            entry = self._PROCESSENTRY32W()
+            entry.dwSize = ctypes.sizeof(entry)
+            available = self.kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+            while available:
+                names[int(entry.th32ProcessID)] = entry.szExeFile
+                available = self.kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+        finally:
+            self.kernel32.CloseHandle(snapshot)
+        return names
+
+    def windows(self) -> list[Window]:
+        results: list[Window] = []
+        process_names = self._process_names()
+        callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+        def collect(handle, _data):
+            if not self.user32.IsWindowVisible(handle):
+                return True
+            length = self.user32.GetWindowTextLengthW(handle)
+            if length <= 0:
+                return True
+            title = ctypes.create_unicode_buffer(length + 1)
+            self.user32.GetWindowTextW(handle, title, length + 1)
+            class_name = ctypes.create_unicode_buffer(256)
+            self.user32.GetClassNameW(handle, class_name, 256)
+            process_id = wintypes.DWORD()
+            self.user32.GetWindowThreadProcessId(handle, ctypes.byref(process_id))
+            executable = self._process_path(process_id.value) or process_names.get(
+                process_id.value, ""
+            )
+            if executable:
+                results.append(
+                    Window(
+                        int(handle),
+                        process_id.value,
+                        executable,
+                        class_name.value,
+                        title.value,
+                    )
+                )
+            return True
+
+        self.user32.EnumWindows(callback_type(collect), 0)
+        return results
+
+    def launch(
+        self,
+        command: Sequence[str],
+        *,
+        working_directory: str | None = None,
+        shell_execute: bool = False,
+    ) -> None:
+        if shell_execute:
+            startfile = getattr(os, "startfile", None)
+            if startfile is None:
+                raise OSError("Windows ShellExecute is unavailable")
+            arguments = subprocess.list2cmdline(list(command[1:]))
+            startfile(
+                command[0],
+                "open",
+                arguments,
+                working_directory,
+                self.SW_RESTORE,
+            )
+            return
+        subprocess.Popen(
+            list(command),
+            close_fds=True,
+            creationflags=CREATE_NO_WINDOW,
+            cwd=working_directory,
+        )
+
+    def place(self, handle: int, rect: Rect) -> bool:
+        self.user32.ShowWindowAsync(handle, self.SW_RESTORE)
+        return bool(
+            self.user32.SetWindowPos(
+                handle,
+                None,
+                rect.left,
+                rect.top,
+                rect.width,
+                rect.height,
+                self.SWP_NOACTIVATE | self.SWP_NOZORDER,
+            )
+        )
+
+    def window_rect(self, handle: int) -> Rect | None:
+        value = wintypes.RECT()
+        if not self.user32.GetWindowRect(handle, ctypes.byref(value)):
+            return None
+        return self._rect(value)
+
+    def place_elevated(self, task_name: str, timeout: float) -> bool:
+        state_dir = _local_root()
+        state_dir.mkdir(parents=True, exist_ok=True)
+        request_path = state_dir / "tiktok-placement-request.txt"
+        result_path = state_dir / "tiktok-placement-result.json"
+        request_id = str(uuid.uuid4())
+        request_path.write_text(request_id, encoding="ascii")
+        try:
+            started = subprocess.run(
+                ["schtasks.exe", "/Run", "/TN", task_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=CREATE_NO_WINDOW,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            LOGGER.error(
+                "Elevated placement task could not start type=%s",
+                type(exc).__name__,
+            )
+            return False
+        if started.returncode != 0:
+            LOGGER.error(
+                "Elevated placement task start failed code=%d", started.returncode
+            )
+            return False
+
+        deadline = time.monotonic() + max(0.5, timeout)
+        while time.monotonic() < deadline:
+            try:
+                payload = json.loads(result_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                time.sleep(0.20)
+                continue
+            if payload.get("request_id") != request_id:
+                time.sleep(0.20)
+                continue
+            return payload.get("status") == "placed"
+        LOGGER.error("Elevated placement task result timed out")
+        return False
+
+    def minimize(self, handle: int) -> bool:
+        return bool(self.user32.ShowWindowAsync(handle, self.SW_MINIMIZE))
+
+class _Mutex:
+    def __init__(self) -> None:
+        self.handle = None
+
+    def __enter__(self) -> bool:
+        if os.name != "nt":
+            return True
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.argtypes = (
+            ctypes.c_void_p,
+            wintypes.BOOL,
+            wintypes.LPCWSTR,
+        )
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        self.handle = kernel32.CreateMutexW(None, False, "Local\\NeilMitchell.StreamWorkspace")
+        return bool(self.handle) and ctypes.get_last_error() != 183
+
+    def __exit__(self, *_args) -> None:
+        if self.handle:
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            kernel32.CloseHandle(self.handle)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Prepare the Lausudo stream workspace")
+    parser.add_argument("command", choices=("apply", "plan", "validate"), nargs="?", default="apply")
+    parser.add_argument("--json", action="store_true", help="print sanitized actions")
+    args = parser.parse_args(argv)
+    _setup_logging()
+
+    try:
+        platform = WindowsPlatform()
+    except OSError as exc:
+        LOGGER.error("Platform initialization failed type=%s", type(exc).__name__)
+        return 3
+
+    with _Mutex() as acquired:
+        if not acquired:
+            LOGGER.info("Workspace apply already in progress; duplicate request ignored")
+            return 0
+        dry_run = args.command in {"plan", "validate"}
+        success, actions = apply_workspace(platform, dry_run=dry_run)
+        if args.json:
+            print(json.dumps(actions, indent=2))
+        return 0 if success else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

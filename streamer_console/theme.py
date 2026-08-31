@@ -286,6 +286,7 @@ QLabel#authorizationCode {{
     border: 1px solid {COLORS.teal_dark};
     border-radius: 6px;
     background: {COLORS.deep_blue};
+    color: {COLORS.text};
     font-family: "{MONO_FONT}";
 }}
 QSpinBox, QLineEdit, QComboBox {{

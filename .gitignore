@@ -18,8 +18,11 @@ runtime/
 twitch-auth.dat
 sessions/
 logs/
+workspace-layout.json
+stream-workspace-hotkey.log
 *.pem
 *.pfx
 *.key
 .idea/
 .vscode/
+.codex-backups/

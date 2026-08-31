@@ -1,8 +1,9 @@
 """Official Twitch channel-info and EventSub integration.
 
 OAuth uses Twitch's Device Code Grant so this public desktop application never
-needs a client secret. Refresh/access tokens are encrypted with Windows DPAPI
-and are never written to the ordinary JSON configuration or logs.
+needs a client secret. Refresh/access tokens are protected by Windows Credential
+Manager, with legacy DPAPI file compatibility, and are never written to the
+ordinary JSON configuration or logs.
 """
 
 from __future__ import annotations
@@ -51,11 +52,129 @@ class _DataBlob(ctypes.Structure):
     _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_byte))]
 
 
-class TwitchTokenStore:
-    """Small DPAPI-protected token store scoped to the current Windows user."""
+class _Credential(ctypes.Structure):
+    _fields_ = [
+        ("Flags", wintypes.DWORD),
+        ("Type", wintypes.DWORD),
+        ("TargetName", wintypes.LPWSTR),
+        ("Comment", wintypes.LPWSTR),
+        ("LastWritten", wintypes.FILETIME),
+        ("CredentialBlobSize", wintypes.DWORD),
+        ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)),
+        ("Persist", wintypes.DWORD),
+        ("AttributeCount", wintypes.DWORD),
+        ("Attributes", ctypes.c_void_p),
+        ("TargetAlias", wintypes.LPWSTR),
+        ("UserName", wintypes.LPWSTR),
+    ]
 
-    def __init__(self, path: str | Path | None = None) -> None:
+
+class WindowsCredentialStore:
+    """Store one opaque token payload in the current user's Credential Manager."""
+
+    CREDENTIAL_TYPE_GENERIC = 1
+    CREDENTIAL_PERSIST_LOCAL_MACHINE = 2
+    ERROR_NOT_FOUND = 1168
+    MAX_CREDENTIAL_BLOB_BYTES = 2_560
+
+    def __init__(
+        self,
+        target: str = "NeilMitchell.StreamerConsole.TwitchOAuth",
+        *,
+        advapi32: Any | None = None,
+    ) -> None:
+        self.target = target
+        self._advapi32 = advapi32
+
+    def _api(self) -> Any:
+        if os.name != "nt":
+            raise TwitchError("Secure Twitch token storage requires Windows")
+        api = self._advapi32 or ctypes.WinDLL("advapi32", use_last_error=True)
+        if self._advapi32 is None:
+            api.CredWriteW.argtypes = [ctypes.POINTER(_Credential), wintypes.DWORD]
+            api.CredWriteW.restype = wintypes.BOOL
+            api.CredReadW.argtypes = [
+                wintypes.LPCWSTR,
+                wintypes.DWORD,
+                wintypes.DWORD,
+                ctypes.POINTER(ctypes.POINTER(_Credential)),
+            ]
+            api.CredReadW.restype = wintypes.BOOL
+            api.CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
+            api.CredDeleteW.restype = wintypes.BOOL
+            api.CredFree.argtypes = [ctypes.c_void_p]
+            api.CredFree.restype = None
+        return api
+
+    def load(self) -> bytes | None:
+        api = self._api()
+        credential = ctypes.POINTER(_Credential)()
+        if not api.CredReadW(
+            self.target,
+            self.CREDENTIAL_TYPE_GENERIC,
+            0,
+            ctypes.byref(credential),
+        ):
+            error = ctypes.get_last_error()
+            if error == self.ERROR_NOT_FOUND:
+                return None
+            raise TwitchError(
+                "Windows Credential Manager could not read the Twitch "
+                f"authorization (error {error})"
+            )
+        try:
+            size = int(credential.contents.CredentialBlobSize)
+            if not size:
+                return None
+            return ctypes.string_at(credential.contents.CredentialBlob, size)
+        finally:
+            api.CredFree(credential)
+
+    def save(self, data: bytes) -> None:
+        if len(data) > self.MAX_CREDENTIAL_BLOB_BYTES:
+            raise TwitchError(
+                "The Twitch authorization is too large for Windows Credential Manager"
+            )
+        api = self._api()
+        buffer = (ctypes.c_ubyte * len(data)).from_buffer_copy(data)
+        credential = _Credential(
+            Type=self.CREDENTIAL_TYPE_GENERIC,
+            TargetName=self.target,
+            CredentialBlobSize=len(data),
+            CredentialBlob=ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)),
+            Persist=self.CREDENTIAL_PERSIST_LOCAL_MACHINE,
+            UserName="Twitch OAuth",
+        )
+        if not api.CredWriteW(ctypes.byref(credential), 0):
+            error = ctypes.get_last_error()
+            raise TwitchError(
+                "Windows Credential Manager could not save the Twitch "
+                f"authorization (error {error})"
+            )
+
+    def clear(self) -> None:
+        api = self._api()
+        if api.CredDeleteW(self.target, self.CREDENTIAL_TYPE_GENERIC, 0):
+            return
+        error = ctypes.get_last_error()
+        if error != self.ERROR_NOT_FOUND:
+            raise TwitchError(
+                "Windows Credential Manager could not remove the Twitch "
+                f"authorization (error {error})"
+            )
+
+
+class TwitchTokenStore:
+    """Secure token store with Credential Manager and legacy DPAPI support."""
+
+    def __init__(
+        self,
+        path: str | Path | None = None,
+        *,
+        credential_store: WindowsCredentialStore | Any | None = None,
+    ) -> None:
         self.path = Path(path) if path is not None else app_data_dir() / "twitch-auth.dat"
+        self.credential_store = credential_store or WindowsCredentialStore()
 
     @staticmethod
     def _blob(data: bytes) -> tuple[_DataBlob, Any]:
@@ -102,9 +221,33 @@ class TwitchTokenStore:
 
     def load(self) -> dict[str, Any] | None:
         try:
+            credential_raw = self.credential_store.load()
+        except (OSError, TwitchError):
+            LOGGER.warning("Windows Credential Manager Twitch authorization read failed")
+        else:
+            value = self._decode(credential_raw)
+            if value is not None:
+                return value
+
+        try:
             raw = self._unprotect(self.path.read_bytes())
+        except (FileNotFoundError, OSError, TwitchError):
+            return None
+        value = self._decode(raw)
+        if value is not None:
+            try:
+                self.credential_store.save(raw)
+            except (OSError, TwitchError):
+                LOGGER.warning("Legacy DPAPI Twitch authorization migration failed")
+        return value
+
+    @staticmethod
+    def _decode(raw: bytes | None) -> dict[str, Any] | None:
+        if not raw:
+            return None
+        try:
             value = json.loads(raw.decode("utf-8"))
-        except (FileNotFoundError, OSError, ValueError, UnicodeError, TwitchError):
+        except (ValueError, UnicodeError):
             return None
         return dict(value) if isinstance(value, Mapping) else None
 
@@ -114,13 +257,26 @@ class TwitchTokenStore:
             for key in ("access_token", "refresh_token", "expires_in", "scope", "token_type")
             if key in token
         }
-        protected = self._protect(json.dumps(allowed).encode("utf-8"))
+        raw = json.dumps(allowed).encode("utf-8")
+        try:
+            self.credential_store.save(raw)
+            return
+        except (OSError, TwitchError):
+            LOGGER.warning("Windows Credential Manager Twitch authorization save failed")
+
+        # Compatibility fallback for systems where Credential Manager is
+        # unavailable but the older per-user DPAPI binding still works.
+        protected = self._protect(raw)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_suffix(".tmp")
         temporary.write_bytes(protected)
         os.replace(temporary, self.path)
 
     def clear(self) -> None:
+        try:
+            self.credential_store.clear()
+        except (OSError, TwitchError):
+            LOGGER.warning("Windows Credential Manager Twitch authorization clear failed")
         try:
             self.path.unlink()
         except FileNotFoundError:

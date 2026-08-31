@@ -43,11 +43,25 @@ exact Twitch pop-out and TikTok LIVE pages without changing their settings.
 
 ## Twitch Stream Info cannot connect or update
 
+- Normal behavior is one authorization. After **CONNECTED · SAVED** appears,
+  Windows Credential Manager retains the connection and Twitch refreshes the
+  access token automatically. Reauthorization is expected only if access is
+  revoked, the application permissions change, the saved credential is removed,
+  or Twitch invalidates the refresh token.
+- **SETUP REQUIRED · CLIENT ID NEEDED** means the public Client ID must be pasted
+  before connecting. **WAITING FOR TWITCH APPROVAL** means the code shown in the
+  teal box still needs to be approved in the browser. **TWITCH NOT CONNECTED**
+  means choose **CONNECT TWITCH** to begin that one-time flow.
 - Confirm the Client ID belongs to a public Twitch application. Do not enter a client secret.
 - Complete the device code in the browser before it expires.
 - Title/category updates require the Twitch account that owns the channel.
 - Category names use Twitch search; select the intended suggestion when names are similar.
-- Removing `%LOCALAPPDATA%\NeilMitchell\StreamerConsole\twitch-auth.dat` disconnects only the console's Twitch API integration; it does not affect OBS or Twitch chat.
+- The saved entry is named `NeilMitchell.StreamerConsole.TwitchOAuth` in Windows
+  Credential Manager. The older
+  `%LOCALAPPDATA%\NeilMitchell\StreamerConsole\twitch-auth.dat` file is used only
+  as a legacy DPAPI fallback. Removing both disconnects only the console's
+  official Twitch integration; it does not affect OBS or browser-collected
+  Twitch chat.
 
 ## Chat works but OBS is disconnected
 
@@ -58,13 +72,19 @@ exact Twitch pop-out and TikTok LIVE pages without changing their settings.
 
 ## BRB button does nothing
 
-- Confirm OBS and the AutoHotkey helper are running.
+- Confirm OBS is running. Streamer Console normally starts the AutoHotkey helper
+  automatically and stops its managed copy when the app closes.
+- Confirm AutoHotkey v2 and
+  `D:\Projects\OBS-Tools\PrivacyToggle\PrivacyToggle.ahk` still exist. Portable
+  paths can be supplied with `STREAMER_CONSOLE_AHK_EXE` and
+  `STREAMER_CONSOLE_AHK_SCRIPT`.
 - Confirm the helper log exists under `%LOCALAPPDATA%\NeilMitchell\OBSPrivacyToggle`.
 - Test the physical F1 key. The UI button sends that exact same key and does not own a second BRB state machine.
 
 ## Discord button does nothing
 
-- Confirm Discord and the AutoHotkey helper are running.
+- Confirm Discord is running; the console-managed AutoHotkey helper should have
+  started with the application.
 - Discord's native Windows Toggle Mute shortcut is invoked inside Discord, then focus is restored.
 - Discord may not display a useful mute state while disconnected from voice. The console intentionally does not guess.
 
@@ -94,3 +114,38 @@ exact Twitch pop-out and TikTok LIVE pages without changing their settings.
 ## Logs
 
 Rotating diagnostic logs are under `%LOCALAPPDATA%\NeilMitchell\StreamerConsole`. Logs omit chat bodies and credentials.
+## F3 workspace preparation
+
+If F3 produces a short error beep, no fallback placement is attempted. Check:
+
+```text
+%LOCALAPPDATA%\NeilMitchell\StreamerConsole\stream-workspace-hotkey.log
+%LOCALAPPDATA%\NeilMitchell\StreamerConsole\logs\stream-workspace.log
+```
+
+Common causes are a disconnected target display, a moved/missing application
+executable, an application window that never becomes ready, or a missing TikTok
+placement task. Do not run the workspace listener as administrator. Install the
+narrow broker once from an Administrator PowerShell instead:
+
+```powershell
+.\tools\stream_workspace\Install-StreamWorkspace.ps1 -RequireTikTokBroker
+```
+
+If Chrome reports `ERR_BLOCKED_BY_CLIENT`, confirm the official Social Stream
+Ninja extension is installed and enabled in Chrome's **Default** profile. F3 uses
+the official extension ID `cppibjhfemifednoimlblfcmjgfhfjeg`; it never reads
+browser cookies. If Discord covers the console, press F3 again after updating;
+the controller now waits for Discord's saved bounds to stabilize and verifies
+the portrait-bottom placement.
+
+Use the non-mutating plan command to confirm display recognition and approved
+actions:
+
+```powershell
+py -3.13 .\streamer_console\stream_workspace.py plan --json
+```
+
+Running F3 repeatedly is supported. If an application is already open, its
+window is reused. F3 never repairs OBS scenes or audio; F1/F2 troubleshooting
+remains separate.
