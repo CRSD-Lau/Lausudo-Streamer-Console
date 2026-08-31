@@ -160,11 +160,7 @@ def default_apps() -> list[AppSpec]:
     obs = program_files / "obs-studio/bin/64bit/obs64.exe"
     tiktok = _tiktok_executable()
     discord_update = local / "Discord/Update.exe"
-    chrome = program_files / "Google/Chrome/Application/chrome.exe"
     console_command = (_pythonw_executable(), repo / "run_console.pyw")
-    social_url = (
-        "chrome-extension://cppibjhfemifednoimlblfcmjgfhjeg/background.html"
-    )
 
     return [
         AppSpec(
@@ -194,10 +190,14 @@ def default_apps() -> list[AppSpec]:
         ),
         AppSpec(
             "tiktok_live_studio",
-            ("TikTok LIVE Studio.exe", "TikTok LIVE Studio Launcher.exe"),
+            ("TikTok LIVE Studio.exe",),
             ("TikTok LIVE Studio", "LIVE Studio"),
             (str(tiktok),),
-            "production_right",
+            # LIVE Studio requests the highest available Windows integrity
+            # level. A standard F3 listener may launch/reuse it, but must not
+            # claim failure when Windows rejects cross-integrity placement.
+            # LIVE Studio restores its own last saved window position.
+            None,
             launch_timeout=30.0,
             working_directory=str(tiktok.parent),
             shell_execute=True,
@@ -206,10 +206,13 @@ def default_apps() -> list[AppSpec]:
             "social_stream_ninja",
             ("chrome.exe",),
             ("Social Stream Ninja",),
-            (str(chrome), social_url),
+            # The working extension can live in a non-default Chrome context.
+            # Opening its chrome-extension URL through the standard profile
+            # creates ERR_BLOCKED_BY_CLIENT, so F3 deliberately leaves the
+            # already configured collector/browser context untouched.
             None,
-            minimize=True,
-            working_directory=str(chrome.parent),
+            None,
+            launch=False,
         ),
         AppSpec(
             "spotify",

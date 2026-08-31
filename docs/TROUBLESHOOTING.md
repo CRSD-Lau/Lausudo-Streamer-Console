@@ -124,10 +124,12 @@ If F3 produces a short error beep, no fallback placement is attempted. Check:
 ```
 
 Common causes are a disconnected target display, a moved/missing application
-executable, or a higher-integrity application window that standard desktop code
-cannot reposition. Reconnect the expected display or relaunch the affected app
-at the same Windows privilege level; do not run the workspace listener as
-administrator merely to bypass an elevation mismatch.
+executable, or an application window that never becomes ready. F3 deliberately
+does not reposition elevated TikTok LIVE Studio and does not open or minimize
+the profile-specific Social Stream Ninja Chrome context. LIVE Studio restores
+its saved position; keep the already configured Social Stream collector open.
+Do not run the workspace listener as administrator merely to bypass an
+elevation mismatch.
 
 Use the non-mutating plan command to confirm display recognition and approved
 actions:

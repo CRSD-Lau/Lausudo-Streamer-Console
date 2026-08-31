@@ -110,21 +110,26 @@ defaults are calculated from the current Windows work areas:
 
 | Display | Placement |
 | --- | --- |
-| Top 2560x1440 production display | OBS left 60%; TikTok LIVE Studio right 40% |
+| Top 2560x1440 production display | OBS left 60%; TikTok LIVE Studio launches/reuses and restores its own saved position |
 | Left 1080x1920 portrait display | Streamer Console upper 38%; Discord lower 62% |
 | Bottom 2560x1440 primary gaming display | Left untouched; the previously focused window is restored |
 
-Social Stream Ninja opens its official extension page as a normal tab in the
-existing Chrome profile and minimizes that browser window after readiness. It
-does not create a forced-profile Chrome app window. Spotify opens through the installed Microsoft Store
-package and is minimized. Voicemeeter is never launched or configured; if its
-window is already open, the window is placed on the production display and
-minimized.
+Social Stream Ninja remains owned by the already configured Chrome context. F3
+does not open, close, activate, or minimize Chrome because extension URLs are
+profile-specific and the working collector may not belong to Chrome's standard
+profile. Keep that collector context open as described in
+[Social Stream Ninja setup](SOCIAL_STREAM_SETUP.md). Spotify opens through the
+installed Microsoft Store package and is minimized. Voicemeeter is never
+launched or configured; if its window is already open, the window is placed on
+the production display and minimized.
 
 Safety behavior:
 
 - Existing application windows are reused; F3 never closes, restarts, or
   deliberately duplicates an application.
+- TikTok LIVE Studio requests elevated Windows integrity. F3 launches or reuses
+  it but relies on LIVE Studio's saved window position instead of using an
+  elevated helper or triggering a UAC prompt.
 - All three expected displays must be connected. If the topology does not
   match, the operation aborts before launching or moving anything instead of
   spilling production windows onto the gaming display.

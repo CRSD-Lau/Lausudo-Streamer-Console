@@ -127,12 +127,25 @@ class WorkspaceTests(unittest.TestCase):
         self.assertFalse(obs.shell_execute)
         self.assertEqual(Path(tiktok.working_directory), Path(tiktok.command[0]).parent)
         self.assertTrue(tiktok.shell_execute)
+        self.assertEqual(tiktok.executable_names, ("TikTok LIVE Studio.exe",))
+        self.assertIsNone(tiktok.zone)
 
-    def test_social_stream_reuses_normal_chrome_instead_of_blank_app_profile(self):
+    def test_social_stream_is_an_external_prerequisite_not_a_chrome_launch(self):
         app = next(item for item in default_apps() if item.key == "social_stream_ninja")
-        self.assertFalse(any(part.startswith("--profile-directory=") for part in app.command))
-        self.assertFalse(any(part.startswith("--app=") for part in app.command))
-        self.assertTrue(any(part.startswith("chrome-extension://") for part in app.command))
+        self.assertFalse(app.launch)
+        self.assertIsNone(app.command)
+        self.assertFalse(app.minimize)
+
+    def test_missing_external_social_stream_context_is_not_an_f3_failure(self):
+        app = next(item for item in default_apps() if item.key == "social_stream_ninja")
+        platform = FakePlatform()
+        success, actions = apply_workspace(platform, [app])
+        self.assertTrue(success)
+        self.assertEqual(platform.launched, [])
+        self.assertEqual(
+            actions,
+            [{"app": "social_stream_ninja", "action": "not_running_skipped"}],
+        )
 
     def test_launch_options_are_forwarded_to_platform(self):
         executable = Path(__file__)
