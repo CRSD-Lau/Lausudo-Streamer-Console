@@ -117,11 +117,17 @@ Install the optional global **F3 Prepare Stream Workspace** listener with:
 .\tools\stream_workspace\Install-StreamWorkspace.ps1
 ```
 
+Then run the same installer once from an **Administrator PowerShell** with
+`-RequireTikTokBroker`. This registers a fixed, on-demand placement broker for
+TikTok LIVE Studio; F3 itself and the rest of the controller remain non-elevated.
+
 F3 reuses existing windows, launches only missing approved desktop applications,
-and is safe to press repeatedly. It leaves the configured Social Stream Ninja
-browser context untouched and lets elevated TikTok LIVE Studio restore its saved
-window position. It never starts or stops a stream, recording, Virtual Camera,
-scene, microphone, Discord mute state, or Voicemeeter route. See
+and is safe to press repeatedly. It opens the installed Social Stream Ninja
+background page in Chrome's configured Default profile, minimizes it, waits out
+Discord's saved-position restoration, and places OBS/TikTok side by side at
+1360/1200 pixels on the production display. It never starts or stops a stream,
+recording, Virtual Camera, scene, microphone, Discord mute state, or Voicemeeter
+route. See
 [Installation](docs/INSTALLATION.md#global-f3-stream-workspace) for the exact
 default layout and rollback command.
 

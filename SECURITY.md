@@ -33,6 +33,11 @@ keys, passwords, or viewer data in an issue.
   the legacy per-user DPAPI fallback) and absent from logs.
 - Global key emission is restricted to F1 and F2 after the expected target/helper
   processes are detected.
+- The F3 controller remains non-elevated. Its optional highest-run-level
+  scheduled task executes only a hash-verified, administrator-installed script
+  under Program Files; that broker accepts no command or path argument, launches
+  nothing, and can only place the existing TikTok LIVE Studio window into the
+  approved production-monitor zone.
 - Chat, request headers, cookies, stream keys, and authentication payloads must
   never enter logs, session summaries, screenshots, fixtures, or commits.
 - External URLs must use HTTPS; local integrations must bind to loopback.

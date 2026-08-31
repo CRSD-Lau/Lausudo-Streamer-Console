@@ -100,6 +100,19 @@ Install the independent F3 listener for the current Windows user:
 .\tools\stream_workspace\Install-StreamWorkspace.ps1
 ```
 
+Then open **PowerShell as Administrator**, return to the repository directory,
+and install the fixed TikTok placement broker:
+
+```powershell
+.\tools\stream_workspace\Install-StreamWorkspace.ps1 -RequireTikTokBroker
+```
+
+This one-time elevation copies only `TikTokPlacementBroker.ps1` into
+`C:\Program Files\Lausudo Streamer Console`, verifies its SHA-256 hash and ACL,
+and registers an on-demand highest-run-level task. The elevated pass deliberately
+does not start the F3 listener elevated. Pressing F3 later does not prompt for
+UAC and does not elevate the normal Python controller.
+
 The installer creates **Lausudo Stream Workspace.lnk** in the current user's
 Startup folder and starts the listener immediately. The listener remains
 available when Streamer Console is closed and owns only F3; the console-managed
@@ -110,26 +123,28 @@ defaults are calculated from the current Windows work areas:
 
 | Display | Placement |
 | --- | --- |
-| Top 2560x1440 production display | OBS left 60%; TikTok LIVE Studio launches/reuses and restores its own saved position |
+| Top 2560x1440 production display | OBS left 1360 px; TikTok LIVE Studio right 1200 px |
 | Left 1080x1920 portrait display | Streamer Console upper 38%; Discord lower 62% |
 | Bottom 2560x1440 primary gaming display | Left untouched; the previously focused window is restored |
 
-Social Stream Ninja remains owned by the already configured Chrome context. F3
-does not open, close, activate, or minimize Chrome because extension URLs are
-profile-specific and the working collector may not belong to Chrome's standard
-profile. Keep that collector context open as described in
-[Social Stream Ninja setup](SOCIAL_STREAM_SETUP.md). Spotify opens through the
-installed Microsoft Store package and is minimized. Voicemeeter is never
-launched or configured; if its window is already open, the window is placed on
-the production display and minimized.
+F3 opens the installed Social Stream Ninja background service page using the
+configured Chrome **Default** profile and exact official extension ID, then
+minimizes that app window. Keep the Twitch/TikTok source pages configured as
+described in [Social Stream Ninja setup](SOCIAL_STREAM_SETUP.md). Spotify opens
+through the installed Microsoft Store package and is minimized. Voicemeeter is
+never launched or configured; if its window is already open, the window is
+placed on the production display and minimized.
 
 Safety behavior:
 
 - Existing application windows are reused; F3 never closes, restarts, or
   deliberately duplicates an application.
-- TikTok LIVE Studio requests elevated Windows integrity. F3 launches or reuses
-  it but relies on LIVE Studio's saved window position instead of using an
-  elevated helper or triggering a UAC prompt.
+- TikTok LIVE Studio requests elevated Windows integrity and a minimum
+  1200-pixel width. The protected broker places only that existing window; it
+  cannot launch software or accept arbitrary commands. Without the broker, F3
+  exits safely and logs the missing scheduled-task result.
+- Discord may restore its own saved geometry after startup. F3 waits for that
+  restoration and reapplies the portrait-bottom placement until verified.
 - All three expected displays must be connected. If the topology does not
   match, the operation aborts before launching or moving anything instead of
   spilling production windows onto the gaming display.
@@ -148,7 +163,8 @@ Preview the exact sanitized plan without launching or moving anything:
 py -3.13 .\streamer_console\stream_workspace.py plan --json
 ```
 
-Remove only the F3 listener and its Startup shortcut with:
+Remove the F3 listener, Startup shortcut, and protected TikTok broker from an
+**Administrator PowerShell** with:
 
 ```powershell
 .\tools\stream_workspace\Uninstall-StreamWorkspace.ps1

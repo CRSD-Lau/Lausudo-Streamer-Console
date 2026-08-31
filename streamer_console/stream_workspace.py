@@ -20,10 +20,15 @@ import subprocess
 import sys
 import time
 from typing import Protocol, Sequence
+import uuid
 
 
 LOGGER = logging.getLogger("streamer_console.stream_workspace")
 CREATE_NO_WINDOW = 0x08000000
+SOCIAL_STREAM_EXTENSION_ID = "cppibjhfemifednoimlblfcmjgfhfjeg"
+TIKTOK_PLACEMENT_TASK = "Lausudo Stream Workspace TikTok Placement"
+TIKTOK_ZONE_WIDTH = 1200
+PLACEMENT_RESULT_TIMEOUT = 10.0
 
 
 @dataclass(frozen=True)
@@ -71,6 +76,8 @@ class AppSpec:
     launch_timeout: float = 12.0
     working_directory: str | None = None
     shell_execute: bool = False
+    settle_before_place: bool = False
+    elevated_placement_task: str | None = None
 
 
 class Platform(Protocol):
@@ -84,6 +91,8 @@ class Platform(Protocol):
         shell_execute: bool = False,
     ) -> None: ...
     def place(self, handle: int, rect: Rect) -> bool: ...
+    def window_rect(self, handle: int) -> Rect | None: ...
+    def place_elevated(self, task_name: str, timeout: float) -> bool: ...
     def minimize(self, handle: int) -> bool: ...
 
 
@@ -160,7 +169,11 @@ def default_apps() -> list[AppSpec]:
     obs = program_files / "obs-studio/bin/64bit/obs64.exe"
     tiktok = _tiktok_executable()
     discord_update = local / "Discord/Update.exe"
+    chrome = program_files / "Google/Chrome/Application/chrome.exe"
     console_command = (_pythonw_executable(), repo / "run_console.pyw")
+    social_url = (
+        f"chrome-extension://{SOCIAL_STREAM_EXTENSION_ID}/background.html"
+    )
 
     return [
         AppSpec(
@@ -178,6 +191,7 @@ def default_apps() -> list[AppSpec]:
             (str(discord_update), "--processStart", "Discord.exe"),
             "portrait_bottom",
             working_directory=str(discord_update.parent),
+            settle_before_place=True,
         ),
         AppSpec(
             "obs",
@@ -193,26 +207,24 @@ def default_apps() -> list[AppSpec]:
             ("TikTok LIVE Studio.exe",),
             ("TikTok LIVE Studio", "LIVE Studio"),
             (str(tiktok),),
-            # LIVE Studio requests the highest available Windows integrity
-            # level. A standard F3 listener may launch/reuse it, but must not
-            # claim failure when Windows rejects cross-integrity placement.
-            # LIVE Studio restores its own last saved window position.
-            None,
+            "production_right",
             launch_timeout=30.0,
             working_directory=str(tiktok.parent),
             shell_execute=True,
+            elevated_placement_task=TIKTOK_PLACEMENT_TASK,
         ),
         AppSpec(
             "social_stream_ninja",
             ("chrome.exe",),
             ("Social Stream Ninja",),
-            # The working extension can live in a non-default Chrome context.
-            # Opening its chrome-extension URL through the standard profile
-            # creates ERR_BLOCKED_BY_CLIENT, so F3 deliberately leaves the
-            # already configured collector/browser context untouched.
+            (
+                str(chrome),
+                "--profile-directory=Default",
+                f"--app={social_url}",
+            ),
             None,
-            None,
-            launch=False,
+            minimize=True,
+            working_directory=str(chrome.parent),
         ),
         AppSpec(
             "spotify",
@@ -282,7 +294,7 @@ def identify_roles(monitors: Sequence[Monitor]) -> dict[str, Monitor]:
 def build_zones(roles: dict[str, Monitor]) -> dict[str, Rect]:
     production = roles["production"].work_area
     portrait = roles["portrait"].work_area
-    production_split = production.left + round(production.width * 0.60)
+    production_split = production.right - TIKTOK_ZONE_WIDTH
     portrait_split = portrait.top + round(portrait.height * 0.38)
     return {
         "production_left": Rect(
@@ -324,6 +336,74 @@ def _wait_for_window(platform: Platform, app: AppSpec) -> Window | None:
     return None
 
 
+def _rect_close(actual: Rect | None, expected: Rect, tolerance: int = 12) -> bool:
+    if actual is None:
+        return False
+    return all(
+        abs(left - right) <= tolerance
+        for left, right in (
+            (actual.left, expected.left),
+            (actual.top, expected.top),
+            (actual.right, expected.right),
+            (actual.bottom, expected.bottom),
+        )
+    )
+
+
+def _wait_for_geometry_stable(
+    platform: Platform,
+    window: Window,
+    *,
+    timeout: float = 5.0,
+    stable_for: float = 0.8,
+) -> bool:
+    """Wait for an app's own startup restoration to stop changing its bounds."""
+
+    deadline = time.monotonic() + timeout
+    previous: Rect | None = None
+    stable_since: float | None = None
+    while time.monotonic() < deadline:
+        current = platform.window_rect(window.handle)
+        if current is None:
+            return False
+        now = time.monotonic()
+        if current == previous:
+            stable_since = stable_since or now
+            if now - stable_since >= stable_for:
+                return True
+        else:
+            previous = current
+            stable_since = now
+        time.sleep(0.20)
+    return False
+
+
+def _place_until_stable(
+    platform: Platform,
+    handle: int,
+    rect: Rect,
+    *,
+    timeout: float = 4.0,
+    stable_for: float = 0.8,
+) -> bool:
+    """Reapply placement if an app restores stale bounds after startup."""
+
+    deadline = time.monotonic() + timeout
+    stable_since: float | None = None
+    while time.monotonic() < deadline:
+        if not platform.place(handle, rect):
+            return False
+        time.sleep(0.20)
+        now = time.monotonic()
+        if _rect_close(platform.window_rect(handle), rect):
+            stable_since = stable_since or now
+            if now - stable_since >= stable_for:
+                return True
+        else:
+            stable_since = None
+    return False
+
+
 def apply_workspace(
     platform: Platform,
     apps: Sequence[AppSpec] | None = None,
@@ -355,7 +435,10 @@ def apply_workspace(
             actions.append({"app": app.key, "action": "launch"})
             if dry_run:
                 if app.zone is not None:
-                    actions.append({"app": app.key, "action": f"place_{app.zone}"})
+                    placement_action = f"place_{app.zone}"
+                    if app.elevated_placement_task:
+                        placement_action += "_elevated"
+                    actions.append({"app": app.key, "action": placement_action})
                 if app.minimize:
                     actions.append({"app": app.key, "action": "minimize"})
                 continue
@@ -384,10 +467,28 @@ def apply_workspace(
             actions.append({"app": app.key, "action": "reuse"})
 
         if app.zone is not None:
-            actions.append({"app": app.key, "action": f"place_{app.zone}"})
-            if not dry_run and not platform.place(window.handle, zones[app.zone]):
-                LOGGER.error("Window placement failed app=%s", app.key)
-                success = False
+            placement_action = f"place_{app.zone}"
+            if app.elevated_placement_task:
+                placement_action += "_elevated"
+            actions.append({"app": app.key, "action": placement_action})
+            if not dry_run:
+                if app.settle_before_place and not _wait_for_geometry_stable(
+                    platform, window
+                ):
+                    LOGGER.error("Window readiness did not stabilize app=%s", app.key)
+                    success = False
+                    continue
+                if app.elevated_placement_task:
+                    placed = platform.place_elevated(
+                        app.elevated_placement_task, PLACEMENT_RESULT_TIMEOUT
+                    )
+                else:
+                    placed = _place_until_stable(
+                        platform, window.handle, zones[app.zone]
+                    )
+                if not placed:
+                    LOGGER.error("Window placement failed app=%s", app.key)
+                    success = False
         if app.minimize:
             actions.append({"app": app.key, "action": "minimize"})
             if not dry_run and not platform.minimize(window.handle):
@@ -509,6 +610,11 @@ class WindowsPlatform:
             wintypes.UINT,
         )
         self.user32.SetWindowPos.restype = wintypes.BOOL
+        self.user32.GetWindowRect.argtypes = (
+            wintypes.HWND,
+            ctypes.POINTER(wintypes.RECT),
+        )
+        self.user32.GetWindowRect.restype = wintypes.BOOL
         self.user32.SetForegroundWindow.argtypes = (wintypes.HWND,)
         self.user32.SetForegroundWindow.restype = wintypes.BOOL
 
@@ -654,6 +760,54 @@ class WindowsPlatform:
                 self.SWP_NOACTIVATE | self.SWP_NOZORDER,
             )
         )
+
+    def window_rect(self, handle: int) -> Rect | None:
+        value = wintypes.RECT()
+        if not self.user32.GetWindowRect(handle, ctypes.byref(value)):
+            return None
+        return self._rect(value)
+
+    def place_elevated(self, task_name: str, timeout: float) -> bool:
+        state_dir = _local_root()
+        state_dir.mkdir(parents=True, exist_ok=True)
+        request_path = state_dir / "tiktok-placement-request.txt"
+        result_path = state_dir / "tiktok-placement-result.json"
+        request_id = str(uuid.uuid4())
+        request_path.write_text(request_id, encoding="ascii")
+        try:
+            started = subprocess.run(
+                ["schtasks.exe", "/Run", "/TN", task_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=CREATE_NO_WINDOW,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            LOGGER.error(
+                "Elevated placement task could not start type=%s",
+                type(exc).__name__,
+            )
+            return False
+        if started.returncode != 0:
+            LOGGER.error(
+                "Elevated placement task start failed code=%d", started.returncode
+            )
+            return False
+
+        deadline = time.monotonic() + max(0.5, timeout)
+        while time.monotonic() < deadline:
+            try:
+                payload = json.loads(result_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                time.sleep(0.20)
+                continue
+            if payload.get("request_id") != request_id:
+                time.sleep(0.20)
+                continue
+            return payload.get("status") == "placed"
+        LOGGER.error("Elevated placement task result timed out")
+        return False
 
     def minimize(self, handle: int) -> bool:
         return bool(self.user32.ShowWindowAsync(handle, self.SW_MINIMIZE))

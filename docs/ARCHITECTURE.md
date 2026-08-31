@@ -150,6 +150,20 @@ and foreground restoration. It does not import the OBS client, emit application
 hotkeys, or call any stream/audio control surface. The approved executable
 allowlist is defined in `streamer_console/stream_workspace.py`.
 
+TikTok LIVE Studio runs at a higher Windows integrity level and has a 1200-pixel
+minimum width. The normal controller therefore reserves the production
+display's rightmost 1200 pixels and delegates only that one placement to a fixed
+scheduled task. The task runs a hash-verified broker copied into Program Files,
+accepts no executable/path/window arguments, launches nothing, finds only the
+existing TikTok LIVE Studio main window, and uses non-activating placement. The
+request/result files contain only a correlation GUID and bounded status under
+the current user's LocalAppData. No UAC prompt occurs when F3 is pressed.
+
+Chrome uses the installed Social Stream Ninja extension ID in the Default
+profile and app-window mode, then minimizes the background page. Discord is
+placed only after its startup geometry has stabilized, and the target is
+reapplied until it remains in the portrait-bottom zone.
+
 Before any launch or placement, the controller requires the expected primary
 2560x1440 gaming display, an upper 2560x1440 production display, and a left
 1080x1920 portrait display. Zones derive from Windows work areas so taskbars are

@@ -124,12 +124,20 @@ If F3 produces a short error beep, no fallback placement is attempted. Check:
 ```
 
 Common causes are a disconnected target display, a moved/missing application
-executable, or an application window that never becomes ready. F3 deliberately
-does not reposition elevated TikTok LIVE Studio and does not open or minimize
-the profile-specific Social Stream Ninja Chrome context. LIVE Studio restores
-its saved position; keep the already configured Social Stream collector open.
-Do not run the workspace listener as administrator merely to bypass an
-elevation mismatch.
+executable, an application window that never becomes ready, or a missing TikTok
+placement task. Do not run the workspace listener as administrator. Install the
+narrow broker once from an Administrator PowerShell instead:
+
+```powershell
+.\tools\stream_workspace\Install-StreamWorkspace.ps1 -RequireTikTokBroker
+```
+
+If Chrome reports `ERR_BLOCKED_BY_CLIENT`, confirm the official Social Stream
+Ninja extension is installed and enabled in Chrome's **Default** profile. F3 uses
+the official extension ID `cppibjhfemifednoimlblfcmjgfhfjeg`; it never reads
+browser cookies. If Discord covers the console, press F3 again after updating;
+the controller now waits for Discord's saved bounds to stabilize and verifies
+the portrait-bottom placement.
 
 Use the non-mutating plan command to confirm display recognition and approved
 actions:
