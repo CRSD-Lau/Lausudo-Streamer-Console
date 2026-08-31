@@ -92,6 +92,68 @@ Stream Info updates. Once **CONNECTED · SAVED** appears, Windows Credential
 Manager retains the connection and Twitch refreshes it automatically; approval
 is normally needed only once. TikTok/Social Stream collection remains independent.
 
+## Global F3 stream workspace
+
+Install the independent F3 listener for the current Windows user:
+
+```powershell
+.\tools\stream_workspace\Install-StreamWorkspace.ps1
+```
+
+The installer creates **Lausudo Stream Workspace.lnk** in the current user's
+Startup folder and starts the listener immediately. The listener remains
+available when Streamer Console is closed and owns only F3; the console-managed
+F1/F2 privacy helper retains its existing lifecycle.
+
+F3 is an idempotent **Prepare Stream Workspace** command, not a toggle. Its
+defaults are calculated from the current Windows work areas:
+
+| Display | Placement |
+| --- | --- |
+| Top 2560x1440 production display | OBS left 60%; TikTok LIVE Studio right 40% |
+| Left 1080x1920 portrait display | Streamer Console upper 38%; Discord lower 62% |
+| Bottom 2560x1440 primary gaming display | Left untouched; the previously focused window is restored |
+
+Social Stream Ninja opens through its official Chrome extension page in the
+normal Chrome **Default** profile and is minimized after readiness. This avoids
+attaching to automation-owned Chrome profiles. Install or enable Social Stream
+Ninja in the Default profile if Chrome reports that the extension page is
+unavailable. Spotify opens through the installed Microsoft Store
+package and is minimized. Voicemeeter is never launched or configured; if its
+window is already open, the window is placed on the production display and
+minimized.
+
+Safety behavior:
+
+- Existing application windows are reused; F3 never closes, restarts, or
+  deliberately duplicates an application.
+- All three expected displays must be connected. If the topology does not
+  match, the operation aborts before launching or moving anything instead of
+  spilling production windows onto the gaming display.
+- F3 controls only windows. It has no OBS WebSocket integration and cannot
+  change stream/recording state, scenes, Virtual Camera, microphone or monitor
+  state, Discord mute, Spotify routing, or Voicemeeter routing.
+- A named mutex collapses overlapping F3 presses into one operation. App
+  readiness uses bounded window polling rather than fixed blind delays.
+- Failures are recorded in bounded local logs under
+  `%LOCALAPPDATA%\NeilMitchell\StreamerConsole`; window titles and credentials
+  are not logged.
+
+Preview the exact sanitized plan without launching or moving anything:
+
+```powershell
+py -3.13 .\streamer_console\stream_workspace.py plan --json
+```
+
+Remove only the F3 listener and its Startup shortcut with:
+
+```powershell
+.\tools\stream_workspace\Uninstall-StreamWorkspace.ps1
+```
+
+This rollback does not touch F1/F2, Streamer Console, OBS, TikTok LIVE Studio,
+Discord, Spotify, Social Stream Ninja, Voicemeeter, or their settings.
+
 ## 7. Validate without production services
 
 ```powershell

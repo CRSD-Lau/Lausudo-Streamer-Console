@@ -114,3 +114,28 @@ exact Twitch pop-out and TikTok LIVE pages without changing their settings.
 ## Logs
 
 Rotating diagnostic logs are under `%LOCALAPPDATA%\NeilMitchell\StreamerConsole`. Logs omit chat bodies and credentials.
+## F3 workspace preparation
+
+If F3 produces a short error beep, no fallback placement is attempted. Check:
+
+```text
+%LOCALAPPDATA%\NeilMitchell\StreamerConsole\stream-workspace-hotkey.log
+%LOCALAPPDATA%\NeilMitchell\StreamerConsole\logs\stream-workspace.log
+```
+
+Common causes are a disconnected target display, a moved/missing application
+executable, or a higher-integrity application window that standard desktop code
+cannot reposition. Reconnect the expected display or relaunch the affected app
+at the same Windows privilege level; do not run the workspace listener as
+administrator merely to bypass an elevation mismatch.
+
+Use the non-mutating plan command to confirm display recognition and approved
+actions:
+
+```powershell
+py -3.13 .\streamer_console\stream_workspace.py plan --json
+```
+
+Running F3 repeatedly is supported. If an application is already open, its
+window is reused. F3 never repairs OBS scenes or audio; F1/F2 troubleshooting
+remains separate.

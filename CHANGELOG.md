@@ -3,6 +3,22 @@
 All notable changes to Lausudo Streamer Console are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.0] — 2026-08-30
+
+### Added
+
+- An independent global F3 Prepare Stream Workspace listener.
+- Fail-closed three-monitor detection and work-area-aware placement for OBS,
+  TikTok LIVE Studio, Streamer Console, and Discord.
+- Idempotent missing-app launch, existing-window reuse, bounded readiness,
+  background Social Stream Ninja/Spotify handling, and focus restoration.
+- Reversible per-user Startup installation plus dedicated removal tooling.
+
+### Security
+
+- The F3 controller is isolated from OBS, stream, recording, scene, audio,
+  Virtual Camera, Discord mute, and Voicemeeter routing state.
+
 ## [1.0.1] — 2026-08-28
 
 ### Changed
@@ -44,5 +60,6 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Credential redaction and no chat-body logging.
 - Evidence-based BRB privacy status covering microphone monitoring and Spotify routing.
 
+[1.1.0]: https://github.com/CRSD-Lau/Lausudo-Streamer-Console/compare/v1.0.1...HEAD
 [1.0.1]: https://github.com/CRSD-Lau/Lausudo-Streamer-Console/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/CRSD-Lau/Lausudo-Streamer-Console/releases/tag/v1.0.0

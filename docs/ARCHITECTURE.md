@@ -137,3 +137,21 @@ Borderless mode deliberately removes the native frame for a clean presentation. 
 ## Resource model
 
 The UI uses Qt Widgets and a custom list model/delegate rather than a browser renderer. Networking runs in small background workers, OBS polling is bounded, the chat model has a hard limit, and there are no continuous animations.
+## F3 workspace controller
+
+The global F3 listener is intentionally separate from the Streamer Console
+process and its owned F1/F2 helper. A per-user Startup shortcut runs one
+AutoHotkey v2 script that owns only F3. That listener invokes a headless Python
+window controller in this repository.
+
+The controller has a narrow trust boundary: monitor enumeration, approved
+process/window discovery, GUI application launch, window placement/minimizing,
+and foreground restoration. It does not import the OBS client, emit application
+hotkeys, or call any stream/audio control surface. The approved executable
+allowlist is defined in `streamer_console/stream_workspace.py`.
+
+Before any launch or placement, the controller requires the expected primary
+2560x1440 gaming display, an upper 2560x1440 production display, and a left
+1080x1920 portrait display. Zones derive from Windows work areas so taskbars are
+respected. Existing matching windows are preferred, optional Voicemeeter is
+never launched, and a named mutex makes concurrent presses idempotent.

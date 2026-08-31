@@ -41,6 +41,7 @@ integrations are intentionally narrow, inspectable, and local-first.
 | Live pulse | Displays Twitch viewers plus best-effort TikTok viewers, new follows, and captured likes for the current stream session. |
 | OBS awareness | Reads stream, recording, current main scene, Aitum vertical scene/output, microphone monitoring, Spotify monitoring, and BRB state. |
 | Raid controls | Sends the same F1 BRB/privacy and F2 Discord-mute hotkeys as the existing canonical automation—no competing state machine. |
+| F3 workspace | A separate startup listener opens only missing stream applications, arranges them across the approved three-monitor layout, and restores game focus without touching OBS or audio state. |
 | Twitch Stream Info | Reads and updates the title/category through Twitch Helix using the public-client Device Code flow. |
 | Spotify remote | Uses the local Windows media session for previous, play/pause, next, metadata, and progress without changing stream audio routing. |
 | Windows-native shell | Supports native resizing, maximize, Windows 11 Snap Layouts, taskbar grouping, a branded icon, remembered portrait placement, and a short-window mode that gives chat and alerts priority when Discord shares the display. |
@@ -58,6 +59,8 @@ flowchart LR
     I --> U
     W[Windows media session] --> U
     U -->|F1 / F2| A[Existing privacy and Discord automation]
+    K[Global F3 listener] --> P[Headless window workspace controller]
+    P --> D[Production + portrait displays]
 ```
 
 The workers are isolated: losing OBS does not stop chat, and losing one chat
@@ -107,6 +110,18 @@ The scripts resolve the repository directory dynamically; they do not require a
 fixed clone path. See [Installation](docs/INSTALLATION.md),
 [Configuration](docs/CONFIGURATION.md), and
 [Social Stream Ninja setup](docs/SOCIAL_STREAM_SETUP.md) for the complete flow.
+
+Install the optional global **F3 Prepare Stream Workspace** listener with:
+
+```powershell
+.\tools\stream_workspace\Install-StreamWorkspace.ps1
+```
+
+F3 reuses existing windows, launches only missing approved applications, and is
+safe to press repeatedly. It never starts or stops a stream, recording, Virtual
+Camera, scene, microphone, Discord mute state, or Voicemeeter route. See
+[Installation](docs/INSTALLATION.md#global-f3-stream-workspace) for the exact
+default layout and rollback command.
 
 ## Twitch authorization
 
@@ -183,7 +198,7 @@ not send global hotkeys, post production chat, or control OBS. See
 
 ## Project status and legal notice
 
-Version 1.0.1 reflects the current Lausudo production workflow. TikTok data is
+Version 1.1.0 reflects the current Lausudo production workflow. TikTok data is
 best effort because it depends on the browser LIVE page and Social Stream Ninja;
 platform changes, login gates, CAPTCHA, and throttling can affect collection.
 
