@@ -144,8 +144,10 @@ Safety behavior:
   deliberately duplicates an application.
 - TikTok LIVE Studio requests elevated Windows integrity and enforces a
   1200-by-740-pixel window. The protected broker places only that existing window; it
-  cannot launch software or accept arbitrary commands. Without the broker, F3
-  exits safely and logs the missing scheduled-task result.
+  cannot launch software or accept arbitrary commands. During a fresh launch,
+  the broker retains the approved placement through TikTok's delayed startup
+  geometry restore before reporting success. Without the broker, F3 exits
+  safely and logs the missing scheduled-task result.
 - Discord may restore its own saved geometry after startup. F3 waits for that
   restoration and reapplies the portrait-bottom placement until verified.
 - All three expected displays must be connected. If the topology does not

@@ -21,6 +21,7 @@ from streamer_console.stream_workspace import (
     TIKTOK_PLACEMENT_TASK,
     TWITCH_CHAT_URL,
     WindowsPlatform,
+    _find_window,
 )
 
 
@@ -100,6 +101,16 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(platform.placed[0][0], 5)
         self.assertEqual(platform.focused, [])
         self.assertIn({"app": "obs", "action": "reuse"}, actions)
+
+    def test_largest_matching_window_wins_over_electron_splash(self):
+        splash = Window(4, 10, r"C:\Apps\Discord.exe", "Chrome", "Discord")
+        main = Window(5, 10, r"C:\Apps\Discord.exe", "Chrome", "Discord")
+        platform = FakePlatform(windows=[splash, main])
+        platform.rects[splash.handle] = Rect(0, 0, 420, 240)
+        platform.rects[main.handle] = Rect(0, 0, 1080, 1161)
+        app = AppSpec("discord", ("Discord.exe",), ("Discord",), None, "portrait_bottom")
+
+        self.assertEqual(_find_window(platform, app), main)
 
     def test_optional_voicemeeter_is_never_launched(self):
         platform = FakePlatform()
@@ -195,6 +206,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue(success)
         self.assertEqual(platform.placed, [])
         self.assertEqual(platform.elevated_placements[0][0], TIKTOK_PLACEMENT_TASK)
+        self.assertEqual(platform.elevated_placements[0][1], 30.0)
         self.assertIn(
             {"app": "tiktok_live_studio", "action": "place_production_right_elevated"},
             actions,
@@ -244,6 +256,9 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn("$ValidateOnly", broker)
         self.assertIn("tiktok_window_found = $TikTokWindow -ne [IntPtr]::Zero", broker)
         self.assertIn("$Target.Bottom = $Target.Top + 740", broker)
+        self.assertIn("STARTUP_GUARD_SECONDS = 20", broker)
+        self.assertIn("DateTime.UtcNow >= startupGuardUntil", broker)
+        self.assertIn("IntPtr currentWindow = FindTikTokWindow()", broker)
         self.assertNotIn("Start-Process", broker)
         self.assertNotIn("Invoke-Expression", broker)
         self.assertIn("$env:ProgramFiles", installer)
