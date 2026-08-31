@@ -575,6 +575,13 @@ class PortraitWindowTests(unittest.TestCase):
         self.assertEqual(self.window.live_tally.text(), "READY")
         self.assertEqual(self.window.live_tally.property("state"), "ready")
         self.assertEqual(self.window.live_tally_dot.property("state"), "ready")
+        self.assertTrue(
+            self.window.live_tally.alignment() & Qt.AlignmentFlag.AlignHCenter
+        )
+        self.assertEqual(
+            self.window.live_tally_dot.width(),
+            self.window.live_tally_balance.width(),
+        )
 
         self.window.update_connection(
             Platform.TWITCH, ConnectionState.DISCONNECTED, "DISCONNECTED"
