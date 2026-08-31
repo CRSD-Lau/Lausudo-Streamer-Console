@@ -228,6 +228,12 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn("TikTokPlacementBroker.ps1", installer)
         self.assertIn("UTF8Encoding]::new($false)", broker)
         self.assertIn("-and -not $IsAdministrator", installer)
+        self.assertNotIn("$UnsafeRights", installer)
+        self.assertIn("$MutationRights", installer)
+        self.assertIn("FileSystemRights]::WriteData", installer)
+        self.assertIn("FileSystemRights]::ChangePermissions", installer)
+        self.assertIn("FileSystemRights]::TakeOwnership", installer)
+        self.assertIn("@($BrokerDirectory, $BrokerInstalledPath)", installer)
 
     def test_elevated_placement_correlates_result_to_fixed_task_request(self):
         platform = object.__new__(WindowsPlatform)

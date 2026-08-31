@@ -66,17 +66,26 @@ if ($IsAdministrator) {
         throw 'TikTok placement broker copy verification failed.'
     }
 
-    $UnsafeRights = [Security.AccessControl.FileSystemRights]::Write -bor
-        [Security.AccessControl.FileSystemRights]::Modify -bor
-        [Security.AccessControl.FileSystemRights]::FullControl
+    # Composite values such as FullControl contain read and synchronize bits.
+    # Using them as a bitmask would falsely reject ordinary ReadAndExecute ACEs.
+    $MutationRights = [Security.AccessControl.FileSystemRights]::WriteData -bor
+        [Security.AccessControl.FileSystemRights]::AppendData -bor
+        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
+        [Security.AccessControl.FileSystemRights]::Delete -bor
+        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [Security.AccessControl.FileSystemRights]::TakeOwnership
     $TrustedIdentities = @(
         'NT AUTHORITY\SYSTEM',
         'BUILTIN\Administrators',
         'NT SERVICE\TrustedInstaller'
     )
-    $UnsafeRules = (Get-Acl -LiteralPath $BrokerInstalledPath).Access | Where-Object {
+    $UnsafeRules = @($BrokerDirectory, $BrokerInstalledPath) | ForEach-Object {
+        (Get-Acl -LiteralPath $_).Access
+    } | Where-Object {
         $_.AccessControlType -eq [Security.AccessControl.AccessControlType]::Allow -and
-        ($_.FileSystemRights -band $UnsafeRights) -ne 0 -and
+        ($_.FileSystemRights -band $MutationRights) -ne 0 -and
         $_.IdentityReference.Value -notin $TrustedIdentities
     }
     if (@($UnsafeRules).Count -ne 0) {
