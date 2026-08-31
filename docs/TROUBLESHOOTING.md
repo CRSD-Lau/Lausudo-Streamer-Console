@@ -137,9 +137,10 @@ Ninja extension is installed and enabled in Chrome's **Default** profile. F3 use
 the official extension ID `cppibjhfemifednoimlblfcmjgfhfjeg`; it never reads
 browser cookies. If Discord covers the console, press F3 again after updating;
 the controller chooses Discord's largest application surface, waits for its
-saved bounds to stabilize, and verifies the portrait-bottom placement. A fresh
-TikTok LIVE Studio launch can take roughly 20 seconds before placement is final;
-F3 keeps enforcing the production-monitor target through that startup window.
+saved bounds to stabilize, and reconciles an early placement timeout against
+Discord's actual final bounds before deciding whether F3 failed. A fresh TikTok
+LIVE Studio launch can take roughly 20 seconds before placement is final; F3
+keeps enforcing the production-monitor target through that startup window.
 
 Use the non-mutating plan command to confirm display recognition and approved
 actions:

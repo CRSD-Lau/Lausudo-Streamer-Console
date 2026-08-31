@@ -244,6 +244,57 @@ class WorkspaceTests(unittest.TestCase):
         self.assertGreaterEqual(len(platform.placed), 2)
         self.assertEqual(platform.rects[window.handle], target)
 
+    def test_discord_late_final_bounds_clear_provisional_placement_failure(self):
+        window = Window(20, 32, r"C:\Apps\Discord.exe", "Chrome", "Discord")
+        target = Rect(-1080, 231, 0, 1392)
+        platform = FakePlatform(windows=[window])
+        app = AppSpec(
+            "discord",
+            ("Discord.exe",),
+            ("Discord",),
+            None,
+            "portrait_bottom",
+            settle_before_place=True,
+        )
+
+        def late_success(_platform, handle, rect):
+            platform.rects[handle] = rect
+            return False
+
+        with patch(
+            "streamer_console.stream_workspace._place_until_stable",
+            side_effect=late_success,
+        ):
+            success, actions = apply_workspace(platform, [app])
+
+        self.assertTrue(success)
+        self.assertIn(
+            {"app": "discord", "action": "placement_reconciled"}, actions
+        )
+
+    def test_discord_final_misplacement_remains_a_real_failure(self):
+        window = Window(21, 33, r"C:\Apps\Discord.exe", "Chrome", "Discord")
+        platform = FakePlatform(windows=[window])
+        app = AppSpec(
+            "discord",
+            ("Discord.exe",),
+            ("Discord",),
+            None,
+            "portrait_bottom",
+            settle_before_place=True,
+        )
+
+        with patch(
+            "streamer_console.stream_workspace._place_until_stable",
+            return_value=False,
+        ):
+            success, actions = apply_workspace(platform, [app])
+
+        self.assertFalse(success)
+        self.assertNotIn(
+            {"app": "discord", "action": "placement_reconciled"}, actions
+        )
+
     def test_broker_is_fixed_scope_and_installed_from_protected_location(self):
         root = Path(__file__).parents[1]
         broker = (root / "tools/stream_workspace/TikTokPlacementBroker.ps1").read_text(

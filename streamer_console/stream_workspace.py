@@ -462,6 +462,7 @@ def apply_workspace(
     zones = build_zones(roles)
     actions: list[dict[str, str]] = []
     success = True
+    pending_placements: list[tuple[AppSpec, Rect]] = []
 
     for app in apps or default_apps():
         window = _find_window(platform, app)
@@ -529,13 +530,32 @@ def apply_workspace(
                         platform, window.handle, zones[app.zone]
                     )
                 if not placed:
-                    LOGGER.error("Window placement failed app=%s", app.key)
-                    success = False
+                    if app.settle_before_place:
+                        # Discord can restore its saved Electron bounds after
+                        # the bounded placement loop, then settle correctly
+                        # while slower workspace applications finish. Defer
+                        # only this app's placement verdict to the final state.
+                        pending_placements.append((app, zones[app.zone]))
+                        LOGGER.warning("Window placement pending app=%s", app.key)
+                    else:
+                        LOGGER.error("Window placement failed app=%s", app.key)
+                        success = False
         if app.minimize:
             actions.append({"app": app.key, "action": "minimize"})
             if not dry_run and not platform.minimize(window.handle):
                 LOGGER.error("Window minimize failed app=%s", app.key)
                 success = False
+
+    for app, target in pending_placements:
+        window = _find_window(platform, app)
+        if window is not None and _rect_close(
+            platform.window_rect(window.handle), target
+        ):
+            LOGGER.info("Window placement reconciled app=%s", app.key)
+            actions.append({"app": app.key, "action": "placement_reconciled"})
+        else:
+            LOGGER.error("Window placement failed app=%s", app.key)
+            success = False
 
     LOGGER.info("Workspace apply finished success=%s dry_run=%s", success, dry_run)
     return success, actions
