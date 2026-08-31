@@ -19,6 +19,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The F3 controller is isolated from OBS, stream, recording, scene, audio,
   Virtual Camera, Discord mute, and Voicemeeter routing state.
 
+### Fixed
+
+- Preserve installed working directories when launching OBS and TikTok LIVE
+  Studio, preventing OBS locale-loading failures.
+- Use the normal Windows elevation path for TikTok LIVE Studio and recognize
+  elevated application windows without opening their process handles.
+- Reuse the existing Chrome profile for Social Stream Ninja instead of creating
+  a blank forced-profile app window.
+- Restore foreground focus from the initiating F3 hotkey process rather than
+  from a background Python child that Windows rejects.
+
 ## [1.0.1] — 2026-08-28
 
 ### Changed

@@ -69,16 +69,22 @@ class AppSpec:
     launch: bool = True
     minimize: bool = False
     launch_timeout: float = 12.0
+    working_directory: str | None = None
+    shell_execute: bool = False
 
 
 class Platform(Protocol):
     def monitors(self) -> list[Monitor]: ...
     def windows(self) -> list[Window]: ...
-    def foreground_window(self) -> int: ...
-    def launch(self, command: Sequence[str]) -> None: ...
+    def launch(
+        self,
+        command: Sequence[str],
+        *,
+        working_directory: str | None = None,
+        shell_execute: bool = False,
+    ) -> None: ...
     def place(self, handle: int, rect: Rect) -> bool: ...
     def minimize(self, handle: int) -> bool: ...
-    def restore_focus(self, handle: int) -> bool: ...
 
 
 def _local_root() -> Path:
@@ -167,6 +173,7 @@ def default_apps() -> list[AppSpec]:
             ("Lausudo Streamer Console",),
             tuple(map(str, console_command)),
             "portrait_top",
+            working_directory=str(repo),
         ),
         AppSpec(
             "discord",
@@ -174,6 +181,7 @@ def default_apps() -> list[AppSpec]:
             ("Discord",),
             (str(discord_update), "--processStart", "Discord.exe"),
             "portrait_bottom",
+            working_directory=str(discord_update.parent),
         ),
         AppSpec(
             "obs",
@@ -181,6 +189,8 @@ def default_apps() -> list[AppSpec]:
             ("OBS",),
             (str(obs),),
             "production_left",
+            launch_timeout=20.0,
+            working_directory=str(obs.parent),
         ),
         AppSpec(
             "tiktok_live_studio",
@@ -188,15 +198,18 @@ def default_apps() -> list[AppSpec]:
             ("TikTok LIVE Studio", "LIVE Studio"),
             (str(tiktok),),
             "production_right",
-            launch_timeout=20.0,
+            launch_timeout=30.0,
+            working_directory=str(tiktok.parent),
+            shell_execute=True,
         ),
         AppSpec(
             "social_stream_ninja",
             ("chrome.exe",),
             ("Social Stream Ninja",),
-            (str(chrome), "--profile-directory=Default", f"--app={social_url}"),
+            (str(chrome), social_url),
             None,
             minimize=True,
+            working_directory=str(chrome.parent),
         ),
         AppSpec(
             "spotify",
@@ -322,7 +335,6 @@ def apply_workspace(
         return False, [{"app": "workspace", "action": "aborted_missing_monitors"}]
 
     zones = build_zones(roles)
-    foreground = platform.foreground_window()
     actions: list[dict[str, str]] = []
     success = True
 
@@ -345,10 +357,20 @@ def apply_workspace(
                     actions.append({"app": app.key, "action": "minimize"})
                 continue
             try:
-                platform.launch(app.command)
+                platform.launch(
+                    app.command,
+                    working_directory=app.working_directory,
+                    shell_execute=app.shell_execute,
+                )
                 window = _wait_for_window(platform, app)
             except OSError as exc:
-                LOGGER.error("Launch failed app=%s type=%s", app.key, type(exc).__name__)
+                error_code = getattr(exc, "winerror", None)
+                LOGGER.error(
+                    "Launch failed app=%s type=%s code=%s",
+                    app.key,
+                    type(exc).__name__,
+                    error_code if isinstance(error_code, int) else "unknown",
+                )
                 window = None
             if window is None:
                 LOGGER.error("Window readiness timed out app=%s", app.key)
@@ -369,11 +391,6 @@ def apply_workspace(
                 LOGGER.error("Window minimize failed app=%s", app.key)
                 success = False
 
-    if foreground:
-        actions.append({"app": "foreground", "action": "restore"})
-        if not dry_run and not platform.restore_focus(foreground):
-            LOGGER.warning("Original foreground window could not be restored")
-
     LOGGER.info("Workspace apply finished success=%s dry_run=%s", success, dry_run)
     return success, actions
 
@@ -383,6 +400,7 @@ class WindowsPlatform:
 
     MONITORINFOF_PRIMARY = 1
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    TH32CS_SNAPPROCESS = 0x00000002
     SW_MINIMIZE = 6
     SW_RESTORE = 9
     SWP_NOACTIVATE = 0x0010
@@ -395,6 +413,20 @@ class WindowsPlatform:
             ("rcWork", wintypes.RECT),
             ("dwFlags", wintypes.DWORD),
             ("szDevice", wintypes.WCHAR * 32),
+        ]
+
+    class _PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_size_t),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.WCHAR * 260),
         ]
 
     def __init__(self) -> None:
@@ -417,6 +449,21 @@ class WindowsPlatform:
         self.kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
         self.kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
         self.kernel32.CloseHandle.restype = wintypes.BOOL
+        self.kernel32.CreateToolhelp32Snapshot.argtypes = (
+            wintypes.DWORD,
+            wintypes.DWORD,
+        )
+        self.kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        self.kernel32.Process32FirstW.argtypes = (
+            wintypes.HANDLE,
+            ctypes.POINTER(self._PROCESSENTRY32W),
+        )
+        self.kernel32.Process32FirstW.restype = wintypes.BOOL
+        self.kernel32.Process32NextW.argtypes = (
+            wintypes.HANDLE,
+            ctypes.POINTER(self._PROCESSENTRY32W),
+        )
+        self.kernel32.Process32NextW.restype = wintypes.BOOL
         self.user32.GetMonitorInfoW.argtypes = (
             wintypes.HMONITOR,
             ctypes.POINTER(self._MONITORINFOEXW),
@@ -510,8 +557,28 @@ class WindowsPlatform:
         finally:
             self.kernel32.CloseHandle(handle)
 
+    def _process_names(self) -> dict[int, str]:
+        """Enumerate executable basenames without opening elevated processes."""
+
+        invalid_handle = ctypes.c_void_p(-1).value
+        snapshot = self.kernel32.CreateToolhelp32Snapshot(self.TH32CS_SNAPPROCESS, 0)
+        if not snapshot or snapshot == invalid_handle:
+            return {}
+        names: dict[int, str] = {}
+        try:
+            entry = self._PROCESSENTRY32W()
+            entry.dwSize = ctypes.sizeof(entry)
+            available = self.kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+            while available:
+                names[int(entry.th32ProcessID)] = entry.szExeFile
+                available = self.kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+        finally:
+            self.kernel32.CloseHandle(snapshot)
+        return names
+
     def windows(self) -> list[Window]:
         results: list[Window] = []
+        process_names = self._process_names()
         callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
 
         def collect(handle, _data):
@@ -526,7 +593,9 @@ class WindowsPlatform:
             self.user32.GetClassNameW(handle, class_name, 256)
             process_id = wintypes.DWORD()
             self.user32.GetWindowThreadProcessId(handle, ctypes.byref(process_id))
-            executable = self._process_path(process_id.value)
+            executable = self._process_path(process_id.value) or process_names.get(
+                process_id.value, ""
+            )
             if executable:
                 results.append(
                     Window(
@@ -542,14 +611,31 @@ class WindowsPlatform:
         self.user32.EnumWindows(callback_type(collect), 0)
         return results
 
-    def foreground_window(self) -> int:
-        return int(self.user32.GetForegroundWindow() or 0)
-
-    def launch(self, command: Sequence[str]) -> None:
+    def launch(
+        self,
+        command: Sequence[str],
+        *,
+        working_directory: str | None = None,
+        shell_execute: bool = False,
+    ) -> None:
+        if shell_execute:
+            startfile = getattr(os, "startfile", None)
+            if startfile is None:
+                raise OSError("Windows ShellExecute is unavailable")
+            arguments = subprocess.list2cmdline(list(command[1:]))
+            startfile(
+                command[0],
+                "open",
+                arguments,
+                working_directory,
+                self.SW_RESTORE,
+            )
+            return
         subprocess.Popen(
             list(command),
             close_fds=True,
             creationflags=CREATE_NO_WINDOW,
+            cwd=working_directory,
         )
 
     def place(self, handle: int, rect: Rect) -> bool:
@@ -568,12 +654,6 @@ class WindowsPlatform:
 
     def minimize(self, handle: int) -> bool:
         return bool(self.user32.ShowWindowAsync(handle, self.SW_MINIMIZE))
-
-    def restore_focus(self, handle: int) -> bool:
-        if not self.user32.IsWindow(handle):
-            return False
-        return bool(self.user32.SetForegroundWindow(handle))
-
 
 class _Mutex:
     def __init__(self) -> None:

@@ -114,11 +114,9 @@ defaults are calculated from the current Windows work areas:
 | Left 1080x1920 portrait display | Streamer Console upper 38%; Discord lower 62% |
 | Bottom 2560x1440 primary gaming display | Left untouched; the previously focused window is restored |
 
-Social Stream Ninja opens through its official Chrome extension page in the
-normal Chrome **Default** profile and is minimized after readiness. This avoids
-attaching to automation-owned Chrome profiles. Install or enable Social Stream
-Ninja in the Default profile if Chrome reports that the extension page is
-unavailable. Spotify opens through the installed Microsoft Store
+Social Stream Ninja opens its official extension page as a normal tab in the
+existing Chrome profile and minimizes that browser window after readiness. It
+does not create a forced-profile Chrome app window. Spotify opens through the installed Microsoft Store
 package and is minimized. Voicemeeter is never launched or configured; if its
 window is already open, the window is placed on the production display and
 minimized.

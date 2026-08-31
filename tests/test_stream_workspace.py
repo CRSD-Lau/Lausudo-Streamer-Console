@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import unittest
+from unittest.mock import patch
 
 from streamer_console.stream_workspace import (
     AppSpec,
@@ -12,6 +14,7 @@ from streamer_console.stream_workspace import (
     build_zones,
     default_apps,
     identify_roles,
+    WindowsPlatform,
 )
 
 
@@ -28,6 +31,7 @@ class FakePlatform:
         self._monitors = monitor_topology() if monitors is None else monitors
         self._windows = list(windows or [])
         self.launched: list[tuple[str, ...]] = []
+        self.launch_options: list[tuple[str | None, bool]] = []
         self.placed: list[tuple[int, Rect]] = []
         self.minimized: list[int] = []
         self.focused: list[int] = []
@@ -38,11 +42,9 @@ class FakePlatform:
     def windows(self):
         return self._windows
 
-    def foreground_window(self):
-        return 99
-
-    def launch(self, command):
+    def launch(self, command, *, working_directory=None, shell_execute=False):
         self.launched.append(tuple(command))
+        self.launch_options.append((working_directory, shell_execute))
 
     def place(self, handle, rect):
         self.placed.append((handle, rect))
@@ -51,11 +53,6 @@ class FakePlatform:
     def minimize(self, handle):
         self.minimized.append(handle)
         return True
-
-    def restore_focus(self, handle):
-        self.focused.append(handle)
-        return True
-
 
 class WorkspaceTests(unittest.TestCase):
     def test_roles_and_zones_match_approved_layout(self):
@@ -75,7 +72,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(platform.launched, [])
         self.assertEqual(actions[0]["action"], "aborted_missing_monitors")
 
-    def test_existing_windows_are_reused_and_foreground_restored(self):
+    def test_existing_windows_are_reused_without_child_focus_manipulation(self):
         window = Window(5, 10, r"C:\Apps\OBS64.exe", "Qt", "OBS Studio")
         platform = FakePlatform(windows=[window])
         app = AppSpec("obs", ("obs64.exe",), ("OBS",), ("missing.exe",), "production_left")
@@ -83,7 +80,7 @@ class WorkspaceTests(unittest.TestCase):
         self.assertTrue(success)
         self.assertEqual(platform.launched, [])
         self.assertEqual(platform.placed[0][0], 5)
-        self.assertEqual(platform.focused, [99])
+        self.assertEqual(platform.focused, [])
         self.assertIn({"app": "obs", "action": "reuse"}, actions)
 
     def test_optional_voicemeeter_is_never_launched(self):
@@ -119,12 +116,80 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn("F3::{", content)
         self.assertNotIn("F1::{", content)
         self.assertNotIn("F2::{", content)
+        self.assertIn('previousWindow := WinExist("A")', content)
+        self.assertIn('WinActivate "ahk_id " previousWindow', content)
 
-    def test_social_stream_uses_normal_chrome_default_profile(self):
+    def test_real_gui_launch_contracts_match_installed_shortcuts(self):
+        apps = {item.key: item for item in default_apps()}
+        obs = apps["obs"]
+        tiktok = apps["tiktok_live_studio"]
+        self.assertEqual(Path(obs.working_directory), Path(obs.command[0]).parent)
+        self.assertFalse(obs.shell_execute)
+        self.assertEqual(Path(tiktok.working_directory), Path(tiktok.command[0]).parent)
+        self.assertTrue(tiktok.shell_execute)
+
+    def test_social_stream_reuses_normal_chrome_instead_of_blank_app_profile(self):
         app = next(item for item in default_apps() if item.key == "social_stream_ninja")
-        self.assertIn("--profile-directory=Default", app.command)
-        self.assertTrue(
-            any(part.startswith("--app=chrome-extension://") for part in app.command)
+        self.assertFalse(any(part.startswith("--profile-directory=") for part in app.command))
+        self.assertFalse(any(part.startswith("--app=") for part in app.command))
+        self.assertTrue(any(part.startswith("chrome-extension://") for part in app.command))
+
+    def test_launch_options_are_forwarded_to_platform(self):
+        executable = Path(__file__)
+        app = AppSpec(
+            "launch",
+            ("launched.exe",),
+            (),
+            (str(executable),),
+            None,
+            working_directory=str(executable.parent),
+            shell_execute=True,
+        )
+
+        class ReadyPlatform(FakePlatform):
+            def launch(self, command, *, working_directory=None, shell_execute=False):
+                super().launch(
+                    command,
+                    working_directory=working_directory,
+                    shell_execute=shell_execute,
+                )
+                self._windows.append(
+                    Window(12, 4, r"C:\Apps\launched.exe", "Window", "Ready")
+                )
+
+        platform = ReadyPlatform()
+        success, _actions = apply_workspace(platform, [app])
+        self.assertTrue(success)
+        self.assertEqual(platform.launch_options, [(str(executable.parent), True)])
+
+    def test_shell_execute_launch_preserves_working_directory(self):
+        platform = WindowsPlatform.__new__(WindowsPlatform)
+        with patch.object(os, "startfile", create=True) as startfile:
+            platform.launch(
+                (r"C:\Apps\TikTok.exe", "--safe-argument"),
+                working_directory=r"C:\Apps",
+                shell_execute=True,
+            )
+        startfile.assert_called_once_with(
+            r"C:\Apps\TikTok.exe",
+            "open",
+            "--safe-argument",
+            r"C:\Apps",
+            WindowsPlatform.SW_RESTORE,
+        )
+
+    @patch("streamer_console.stream_workspace.subprocess.Popen")
+    def test_standard_gui_launch_preserves_working_directory(self, popen):
+        platform = WindowsPlatform.__new__(WindowsPlatform)
+        platform.launch(
+            (r"C:\Apps\OBS\obs64.exe",),
+            working_directory=r"C:\Apps\OBS",
+        )
+        popen.assert_called_once_with(
+            [r"C:\Apps\OBS\obs64.exe"],
+            close_fds=True,
+            creationflags=0x08000000,
+            cwd=r"C:\Apps\OBS",
         )
 
 
