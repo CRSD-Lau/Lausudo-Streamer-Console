@@ -207,7 +207,8 @@ not send global hotkeys, post production chat, or control OBS. See
 
 ## Project status and legal notice
 
-Version 1.1.0 reflects the current Lausudo production workflow. TikTok data is
+Version 1.1.1 packages the maintained Lausudo workflow, including the F3 workspace
+controller and the reliability fixes since the published 1.0.0 release. TikTok data is
 best effort because it depends on the browser LIVE page and Social Stream Ninja;
 platform changes, login gates, CAPTCHA, and throttling can affect collection.
 

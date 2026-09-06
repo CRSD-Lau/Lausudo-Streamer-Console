@@ -249,7 +249,7 @@ def _draw_social_preview(app_image: QImage) -> QImage:
 
     painter.setPen(QColor(COLORS.text))
     painter.setFont(QFont("Bahnschrift SemiBold", 48, QFont.Weight.Bold))
-    painter.drawText(QRect(76, 208, 690, 122), Qt.TextFlag.TextWordWrap, "STREAMER\nCONSOLE")
+    painter.drawText(QRect(76, 208, 690, 144), Qt.TextFlag.TextWordWrap, "STREAMER\nCONSOLE")
 
     painter.setPen(QColor(COLORS.mist))
     painter.setFont(QFont("Segoe UI Variable Text", 21, QFont.Weight.Normal))
